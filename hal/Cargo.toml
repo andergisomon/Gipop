@@ -1,0 +1,23 @@
+[workspace]
+
+[package]
+name = "hal"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ethercrab = { path = "/home/ander/SIIP_project/ethercrab-main/ethercrab" }
+signal-hook = "0.3.17"
+tokio = { version = "1.33.0", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+] }
+smol = "2.0.0"
+env_logger = "0.11.6"
+log = "0.4.27"
+bitvec = "1.0.1"
+anyhow = "1.0.98"
+async-executor = "1.13.1"
+
