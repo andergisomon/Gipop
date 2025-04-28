@@ -1,15 +1,10 @@
 // This file probably needs to be used as a module by another file to handle the cyclic tasks in the primary loop
 use bitvec::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Volts(pub f32);
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Milliamps(pub f32);
-
 pub enum ElectricalObservable {
-    Voltage(Volts),
-    Current(Milliamps),
+    Voltage(f32),
+    Current(f32),
+    Simple(u8),
 }
 
 pub enum InputRange {
@@ -17,6 +12,12 @@ pub enum InputRange {
     Current_4_20mA,
     Voltage_0_10V,
     Voltage_2_10V,
+}
+
+#[derive(PartialEq)]
+pub enum VoltageOrCurrent {
+    Voltage,
+    Current
 }
 
 pub const EL1889_IMG_LEN: u8 = 2;
@@ -38,7 +39,7 @@ pub struct OutputTerm<'maindevice> {
 }
 
 pub trait Getter {
-    fn read(&self) -> &BitVec<u8, Lsb0>;
+    fn read(&self) -> ElectricalObservable;
 }
 
 pub trait Setter {
@@ -46,9 +47,9 @@ pub trait Setter {
 }
 
 pub enum KBusTerminalGender {
-    Enby, // 00
-    Output, // 01
-    Input, // 10
+    Enby, // 0b00
+    Output, // 0b01
+    Input, // 0b10
 }
 
 pub struct KBusSubDevice {
@@ -70,8 +71,9 @@ pub struct DITerm {
 }
 
 impl Getter for DITerm {
-    fn read(&self) -> &BitVec<u8, Lsb0> {
-        &self.values
+    fn read(&self) -> ElectricalObservable {
+        let readout = self.values.clone().load::<u8>();
+        ElectricalObservable::Simple(readout)
     }
 }
 
@@ -89,7 +91,7 @@ pub struct DOTerm {
 // }
 
 pub struct AITerm {
-    pub v_or_i: ElectricalObservable,
+    pub v_or_i: VoltageOrCurrent,
     pub input_range: InputRange,
     pub value: BitVec<u8, Lsb0>,
     pub num_of_channels: u8,
@@ -103,7 +105,7 @@ pub struct AITerm {
 }
 
 impl AITerm {
-    fn new(v_or_i: ElectricalObservable,
+    fn new(v_or_i: VoltageOrCurrent,
            input_range: InputRange,
            value: BitVec<u8, Lsb0>,
            num_of_channels: u8,
@@ -132,7 +134,14 @@ impl AITerm {
 }
 
 impl Getter for AITerm {
-    fn read(&self) -> &BitVec<u8, Lsb0> {
-        &self.value
+    fn read(&self) -> ElectricalObservable {
+        let mut raw_int = &self.value.clone();
+        if self.v_or_i == VoltageOrCurrent::Current {
+            return ElectricalObservable::Current((raw_int.load::<u16>() as f32 / 32767.0) * 10.0)
+        }
+        else {
+            unreachable!("Voltage signal AITerm detected. This is not yet implemented")
+        }
+        // Don't have access to any EL AI terminal that takes in voltage right now
     }
 }

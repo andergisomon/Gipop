@@ -40,7 +40,7 @@ pub static TERM_EL3024: LazyLock<Arc<RwLock<AITerm>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
             AITerm {
-                v_or_i: ElectricalObservable::Current(Milliamps(0.0)),
+                v_or_i: VoltageOrCurrent::Current,
                 input_range: InputRange::Current_4_20mA,
                 value: BitVec::<u8, Lsb0>::repeat(false, 16), // value is u16
                 num_of_channels: 4,
@@ -68,8 +68,8 @@ pub fn el3024_handler(dst: &Arc<RwLock<AITerm>>, bits: &BitSlice<u8, Lsb0>) {
     rw_guard.value.copy_from_bitslice(bits.get(17..33).unwrap());
     rw_guard.txpdo_state = *bits.get(14).unwrap() as bool;
     rw_guard.err         = *bits.get(6).unwrap() as bool;
-    rw_guard.limit2      = bits.get(4..6).unwrap().load::<u8>();
-    rw_guard.limit1      = bits.get(2..4).unwrap().load::<u8>();
+    rw_guard.limit2      =  bits.get(4..6).unwrap().load_le::<u8>();
+    rw_guard.limit1      =  bits.get(2..4).unwrap().load_le::<u8>();
     rw_guard.overrange   = *bits.get(1).unwrap() as bool;
     rw_guard.underrange  = *bits.get(0).unwrap() as bool;
 }
