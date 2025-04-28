@@ -90,13 +90,6 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
     // Enter the primary loop
     loop {
-
-        /* Do stuff here:
-        - From term inputs copy into memory
-        - From memory copy into term outputs
-        - other stuff
-
-        */
         if shutdown.load(Ordering::Relaxed) {
             log::info!("Shutting down...");
             break;
@@ -108,19 +101,28 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         for subdevice in group.iter(&maindevice) {
             let input = subdevice.inputs_raw();
             let input_bits = input.view_bits::<Lsb0>();
-
+        
             if subdevice.name() == "EL1889" {
-                // log::info!("input_bits len: {}", input_bits.len());
                 el1889_handler(&*TERM_EL1889, input_bits);
             }
-
         }
 
-        let mut read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
-        if read_guard.values[10] {
-            log::info!("Limit switch hit");
-        }
+        for subdevice in group.iter(&maindevice) {
+            let mut output = subdevice.outputs_raw_mut(); // these two lines cause the program to freeze
+            let output_bits = output.view_bits_mut::<Lsb0>();
 
+            if subdevice.name() == "EL2889" {
+                el2889_handler(output_bits, &*TERM_EL2889);
+            }
+        }
+    
+    
+
+        // let mut read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
+        // if read_guard.values[10] {
+        //     log::info!("Limit switch hit");
+        // }
+    
     }
 
     let group = group.into_safe_op(&maindevice).await.expect("OP -> SAFE-OP");

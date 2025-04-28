@@ -82,9 +82,27 @@ pub static TERM_EL2889: LazyLock<Arc<RwLock<DOTerm>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
             DOTerm {
-                values: BitVec::<u8, Lsb0>::new(),
+                values: BitVec::<u8, Lsb0>::repeat(true, 16), // Capacity must match num_of_channels
                 num_of_channels: 16,
             }
         )
     )
 });
+
+pub fn el2889_handler(dst: &mut BitSlice<u8, Lsb0>, bits: &Arc<RwLock<DOTerm>>) {
+    let mut rw_guard = bits.write().expect("Acquire TERM_EL2889 read/write guard");
+
+    let num_of_channels = rw_guard.values.len();
+
+    if dst.len() != num_of_channels as usize {
+        panic!(
+            "Actual DOTerm Values len {} does not match defined number of channels {}",
+            dst.len(),
+            num_of_channels
+        );
+    }
+
+    for i in 0..num_of_channels as usize {
+        dst.set(i, rw_guard.values[i]);
+    }
+}
