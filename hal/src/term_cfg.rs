@@ -91,20 +91,48 @@ pub struct DOTerm {
 pub struct AITerm {
     pub v_or_i: ElectricalObservable,
     pub input_range: InputRange,
-    pub raw_values: BitVec<u8, Lsb0>,
+    pub value: BitVec<u8, Lsb0>,
     pub num_of_channels: u8,
+    pub underrange: bool,
+    pub overrange: bool,
+    pub limit1: u8,
+    pub limit2: u8,
+    pub err: bool,
+    pub txpdo_state: bool,
+    pub txpdo_toggle: bool,
 }
 
 impl AITerm {
-    fn new(v_or_i: ElectricalObservable, input_range: InputRange, raw_values: BitVec<u8, Lsb0>, num_of_channels: u8) -> Self {
+    fn new(v_or_i: ElectricalObservable,
+           input_range: InputRange,
+           value: BitVec<u8, Lsb0>,
+           num_of_channels: u8,
+           underrange: bool,
+           overrange: bool,
+           limit1: u8,
+           limit2: u8,
+           err: bool,
+           txpdo_state: bool,
+           txpdo_toggle: bool
+        ) -> Self {
         Self {
-            v_or_i, input_range, raw_values, num_of_channels
+            v_or_i,
+            input_range,
+            value,
+            num_of_channels,
+            underrange,
+            overrange,
+            limit1,
+            limit2,
+            err,
+            txpdo_state,
+            txpdo_toggle
         }
     }
 }
 
 impl Getter for AITerm {
     fn read(&self) -> &BitVec<u8, Lsb0> {
-        &self.raw_values
+        &self.value
     }
 }

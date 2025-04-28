@@ -3,11 +3,11 @@ use bitvec::prelude::*;
 use std::sync::{Arc, RwLock, LazyLock};
 
 pub trait TxPDO {
-    fn parse_offset(&self, bits: &BitSlice<u8, Lsb0>);
+    fn parse(&self, bits: &BitSlice<u8, Lsb0>);
 }
 
 pub trait RxPDO {
-    fn parse_offset(&self, bits: &BitSlice<u8, Lsb0>);
+    fn parse(&self, bits: &BitSlice<u8, Lsb0>);
 }
 
 pub static TERM_KL1889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| {
@@ -42,12 +42,37 @@ pub static TERM_EL3024: LazyLock<Arc<RwLock<AITerm>>> = LazyLock::new(|| {
             AITerm {
                 v_or_i: ElectricalObservable::Current(Milliamps(0.0)),
                 input_range: InputRange::Current_4_20mA,
-                raw_values: BitVec::<u8, Lsb0>::new(),
+                value: BitVec::<u8, Lsb0>::repeat(false, 16), // value is u16
                 num_of_channels: 4,
+                underrange:   false,
+                overrange:    false,
+                limit1:       00,
+                limit2:       00,
+                err:          false,
+                txpdo_state:  false,
+                txpdo_toggle: false,
             }
         )
     )
 });
+
+pub fn el3024_handler(dst: &Arc<RwLock<AITerm>>, bits: &BitSlice<u8, Lsb0>) {
+    let bits: &BitSlice<u8, Lsb0> = &bits[0..33]; // test channel 1 for now
+
+    let mut rw_guard = dst.write().expect("Acquire TERM_EL3024 read/write guard");
+
+    rw_guard.txpdo_toggle = *bits.get(15).unwrap() as bool;
+    if !rw_guard.txpdo_toggle { // The TxPDO toggle is toggled by the slave when the data of the associated TxPDO is updated.
+        return;
+    }
+    rw_guard.value.copy_from_bitslice(bits.get(17..33).unwrap());
+    rw_guard.txpdo_state = *bits.get(14).unwrap() as bool;
+    rw_guard.err         = *bits.get(6).unwrap() as bool;
+    rw_guard.limit2      = bits.get(4..6).unwrap().load::<u8>();
+    rw_guard.limit1      = bits.get(2..4).unwrap().load::<u8>();
+    rw_guard.overrange   = *bits.get(1).unwrap() as bool;
+    rw_guard.underrange  = *bits.get(0).unwrap() as bool;
+}
 
 pub static TERM_EL1889: LazyLock<Arc<RwLock<DITerm>>> = LazyLock::new(|| {
     Arc::new(
@@ -82,7 +107,7 @@ pub static TERM_EL2889: LazyLock<Arc<RwLock<DOTerm>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
             DOTerm {
-                values: BitVec::<u8, Lsb0>::repeat(true, 16), // Capacity must match num_of_channels
+                values: BitVec::<u8, Lsb0>::repeat(false, 16), // Capacity must match num_of_channels
                 num_of_channels: 16,
             }
         )

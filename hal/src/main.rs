@@ -105,6 +105,10 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             if subdevice.name() == "EL1889" {
                 el1889_handler(&*TERM_EL1889, input_bits);
             }
+
+            if subdevice.name() == "EL3024" {
+                el3024_handler(&*TERM_EL3024, input_bits);
+            }
         }
 
         for subdevice in group.iter(&maindevice) {
@@ -122,6 +126,10 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         // if read_guard.values[10] {
         //     log::info!("Limit switch hit");
         // }
+
+        log::info!("oopsie");
+        let mut read_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
+        log::info!("EL3024 Ch1 Underrange Bit: {}", read_guard.underrange);
     
     }
 
