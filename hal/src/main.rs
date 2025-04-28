@@ -15,6 +15,7 @@ use bitvec::prelude::*;
 use anyhow::Result;
 mod term_cfg;
 mod io_defs;
+use env_logger::Env;
 
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
@@ -23,6 +24,7 @@ const PDI_LEN: usize = 64; /// Max total PDI length.
 static PDU_STORAGE: PduStorage<MAX_FRAMES, MAX_PDU_DATA> = PduStorage::new();
 
 fn main() {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     smol::block_on(entry_loop("enp3s0")).expect("Entry loop task");
     log::info!("Program terminated.");
 }
@@ -46,15 +48,18 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         },
         MainDeviceConfig {retry_behaviour: RetryBehaviour::Count(10), ..Default::default()}
     ));
-    
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        let _ = rt.block_on(async move { // tokio::runtime::Runtime block_on takes a Future, async turns the block into a Future, move all variables needed into the block for this task
+
+    std::thread::Builder::new()
+    .name("EthercatTxRxThread".to_owned())
+    .spawn(move || {
+        let runtime = smol::LocalExecutor::new();
+        let _ = smol::block_on(runtime.run(async {
             ethercrab::std::tx_rx_task(&network_interface, tx, rx)
                 .expect("spawn TX/RX task")
                 .await
-        });
-    });
+        }));
+    })
+    .expect("build TX/RX thread");
 
     let group = maindevice
     .init_single_group::<MAX_SUBDEVICES, PDI_LEN>(ethercat_now)
