@@ -13,9 +13,10 @@ use std::{
 };
 use bitvec::prelude::*;
 use anyhow::Result;
-mod term_cfg;
-mod io_defs;
+mod term_cfg; // Terminal configuration
+mod io_defs; // IO definitions
 use env_logger::Env;
+use crate::io_defs::*;
 
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
@@ -85,14 +86,16 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     let group = group.into_op(&maindevice).await.expect("PRE-OP -> OP"); // Should probably handle errors better
 
     let shutdown = Arc::new(AtomicBool::new(false)); // Handling Ctrl+C
-    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");
+    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");    
 
     // Enter the primary loop
     loop {
+
         /* Do stuff here:
         - From term inputs copy into memory
         - From memory copy into term outputs
         - other stuff
+
         */
         if shutdown.load(Ordering::Relaxed) {
             log::info!("Shutting down...");
@@ -101,7 +104,22 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
         group.tx_rx(&maindevice).await.expect("TX/RX");
 
-        
+        // copy inputs to devices
+        for subdevice in group.iter(&maindevice) {
+            let input = subdevice.inputs_raw();
+            let input_bits = input.view_bits::<Lsb0>();
+
+            if subdevice.name() == "EL1889" {
+                // log::info!("input_bits len: {}", input_bits.len());
+                el1889_handler(&*TERM_EL1889, input_bits);
+            }
+
+        }
+
+        let mut read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
+        if read_guard.values[10] {
+            log::info!("Limit switch hit");
+        }
 
     }
 
@@ -116,4 +134,3 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
     Ok(())
 }
-

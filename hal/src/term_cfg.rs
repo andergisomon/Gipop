@@ -69,10 +69,24 @@ pub struct DITerm {
     pub num_of_channels: u8,
 }
 
+impl Getter for DITerm {
+    fn read(&self) -> &BitVec<u8, Lsb0> {
+        &self.values
+    }
+}
+
 pub struct DOTerm {
     pub values: BitVec<u8, Lsb0>,
     pub num_of_channels: u8,
 }
+
+// impl Setter for DOTerm {
+//     fn write(&self, data_to_write) -> > Result<(), anyhow::Error> {
+//         // TODO
+//         // get address from &self, write data_to_write at address
+//         ;
+//     }
+// }
 
 pub struct AITerm {
     pub v_or_i: ElectricalObservable,

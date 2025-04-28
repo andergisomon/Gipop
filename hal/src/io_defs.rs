@@ -10,9 +10,6 @@ pub trait RxPDO {
     fn parse_offset(&self, bits: &BitSlice<u8, Lsb0>);
 }
 
-// TODO:
-// Look at the qitech codebase, how everything works together
-// We need to declare these types wrapped in Arc<RwLock<T>> from the start!
 pub static TERM_KL1889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
@@ -56,12 +53,30 @@ pub static TERM_EL1889: LazyLock<Arc<RwLock<DITerm>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
             DITerm {
-                values: BitVec::<u8, Lsb0>::new(),
+                values: BitVec::<u8, Lsb0>::repeat(false, 16), // Capacity must match num_of_channels
                 num_of_channels: 16,
             }
         )
     )
 });
+
+pub fn el1889_handler(dst: &Arc<RwLock<DITerm>>, bits: &BitSlice<u8, Lsb0>) {
+    let mut rw_guard = dst.write().expect("Acquire TERM_EL1889 read/write guard");
+
+    let num_of_channels = rw_guard.values.len();
+
+    if bits.len() != num_of_channels as usize {
+        panic!(
+            "Actual DITerm Values len {} does not match defined number of channels {}",
+            bits.len(),
+            num_of_channels
+        );
+    }
+
+    for i in 0..num_of_channels as usize {
+        rw_guard.values.set(i, bits[i]);
+    }
+}
 
 pub static TERM_EL2889: LazyLock<Arc<RwLock<DOTerm>>> = LazyLock::new(|| {
     Arc::new(
