@@ -178,18 +178,13 @@ pub struct AITerm4Ch {
 }
 
 impl AITerm4Ch {
-    fn new(
-            v_or_i: VoltageOrCurrent,
-            input_range: InputRange,
-            num_of_channels: u8,
-            ch_values: Analog4ChValues,
-            ch_statuses: Analog4ChStatuses) -> Self {
+    pub fn new() -> Self {
         Self {
-            v_or_i,
-            input_range,
-            num_of_channels,
-            ch_values,
-            ch_statuses
+            v_or_i: VoltageOrCurrent::Current,
+            input_range: InputRange::Current_4_20mA,
+            num_of_channels: 4,
+            ch_values: Analog4ChValues::new(),
+            ch_statuses: Analog4ChStatuses::new()
         }
     }
 }

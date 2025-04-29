@@ -39,13 +39,7 @@ pub static TERM_KL2889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
 pub static TERM_EL3024: LazyLock<Arc<RwLock<AITerm4Ch>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
-            AITerm4Ch {
-                v_or_i: VoltageOrCurrent::Current,
-                input_range: InputRange::Current_4_20mA,
-                num_of_channels: 4,
-                ch_values: Analog4ChValues::new(),
-                ch_statuses: Analog4ChStatuses::new()
-            }
+            AITerm4Ch::new()
         )
     )
 });
