@@ -17,6 +17,7 @@ mod term_cfg; // Terminal configuration
 mod io_defs; // IO definitions
 use env_logger::Env;
 use crate::io_defs::*;
+use crate::term_cfg::*;
 
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
@@ -107,7 +108,8 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             }
 
             if subdevice.name() == "EL3024" {
-                el3024_handler(&*TERM_EL3024, input_bits);
+                el3024_handler(&*TERM_EL3024, input_bits, TermChannel::Ch1);
+                el3024_handler(&*TERM_EL3024, input_bits, TermChannel::Ch3);
             }
         }
 
@@ -127,10 +129,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         //     log::info!("Limit switch hit");
         // }
 
-        log::info!("oopsie");
         let mut read_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
-        log::info!("EL3024 Ch1 Underrange Bit: {}", read_guard.underrange);
-    
+        log::info!("EL3024 Ch1 Underrange Bit: {}", read_guard.ch_statuses.ch1.underrange);
+        log::info!("EL3024 Ch3 Underrange Bit: {}", read_guard.ch_statuses.ch3.underrange);
+        log::info!("EL3024 Ch1 Error Bit: {}", read_guard.ch_statuses.ch1.err);
+        log::info!("EL3024 Ch3 Error Bit: {}", read_guard.ch_statuses.ch3.err);
     }
 
     let group = group.into_safe_op(&maindevice).await.expect("OP -> SAFE-OP");

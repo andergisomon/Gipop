@@ -36,42 +36,89 @@ pub static TERM_KL2889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
     )
 });
 
-pub static TERM_EL3024: LazyLock<Arc<RwLock<AITerm>>> = LazyLock::new(|| {
+pub static TERM_EL3024: LazyLock<Arc<RwLock<AITerm4Ch>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
-            AITerm {
+            AITerm4Ch {
                 v_or_i: VoltageOrCurrent::Current,
                 input_range: InputRange::Current_4_20mA,
-                value: BitVec::<u8, Lsb0>::repeat(false, 16), // value is u16
                 num_of_channels: 4,
-                underrange:   false,
-                overrange:    false,
-                limit1:       00,
-                limit2:       00,
-                err:          false,
-                txpdo_state:  false,
-                txpdo_toggle: false,
+                ch_values: Analog4ChValues::new(),
+                ch_statuses: Analog4ChStatuses::new()
             }
         )
     )
 });
 
-pub fn el3024_handler(dst: &Arc<RwLock<AITerm>>, bits: &BitSlice<u8, Lsb0>) {
-    let bits: &BitSlice<u8, Lsb0> = &bits[0..33]; // test channel 1 for now
-
+pub fn el3024_handler(dst: &Arc<RwLock<AITerm4Ch>>, bits: &BitSlice<u8, Lsb0>, channel: TermChannel) {
+    let channel: u8 = channel as u8;
+    let bits: &BitSlice<u8, Lsb0> = &bits[32*(channel as usize -1)..(32*channel as usize)];
     let mut rw_guard = dst.write().expect("Acquire TERM_EL3024 read/write guard");
 
-    rw_guard.txpdo_toggle = *bits.get(15).unwrap() as bool;
-    if !rw_guard.txpdo_toggle { // The TxPDO toggle is toggled by the slave when the data of the associated TxPDO is updated.
-        return;
+    match channel { // will reimplement using bitmasking later; should be way neater
+        1 => {
+            rw_guard.ch_statuses.ch1.txpdo_toggle = *bits.get(15).unwrap() as bool;
+            if !rw_guard.ch_statuses.ch1.txpdo_toggle { // The TxPDO toggle is toggled by the slave when the data of the associated TxPDO is updated.
+                return; }
+        },
+        2 => {
+            rw_guard.ch_statuses.ch2.txpdo_toggle = *bits.get(15).unwrap() as bool;
+            if !rw_guard.ch_statuses.ch2.txpdo_toggle { // The TxPDO toggle is toggled by the slave when the data of the associated TxPDO is updated.
+                return;}
+        },
+        3 => {
+            rw_guard.ch_statuses.ch3.txpdo_toggle = *bits.get(15).unwrap() as bool;
+            if !rw_guard.ch_statuses.ch3.txpdo_toggle { // The TxPDO toggle is toggled by the slave when the data of the associated TxPDO is updated.
+                return;}
+        },
+        4 => {
+            rw_guard.ch_statuses.ch4.txpdo_toggle = *bits.get(15).unwrap() as bool;
+            if !rw_guard.ch_statuses.ch4.txpdo_toggle { // The TxPDO toggle is toggled by the slave when the data of the associated TxPDO is updated.
+                return;}
+        },
+        _ => {unreachable!();}
     }
-    rw_guard.value.copy_from_bitslice(bits.get(17..33).unwrap());
-    rw_guard.txpdo_state = *bits.get(14).unwrap() as bool;
-    rw_guard.err         = *bits.get(6).unwrap() as bool;
-    rw_guard.limit2      =  bits.get(4..6).unwrap().load_le::<u8>();
-    rw_guard.limit1      =  bits.get(2..4).unwrap().load_le::<u8>();
-    rw_guard.overrange   = *bits.get(1).unwrap() as bool;
-    rw_guard.underrange  = *bits.get(0).unwrap() as bool;
+
+    match channel { // this is really ugly, but i don't want to add more abstractions and having to deal with more borrow checking gymnastics
+        1 => {
+            rw_guard.ch_values.ch1.copy_from_bitslice(bits.get(16..32).unwrap());
+            rw_guard.ch_statuses.ch1.txpdo_state = *bits.get(14).unwrap() as bool;
+            rw_guard.ch_statuses.ch1.err         = *bits.get(6).unwrap() as bool;
+            rw_guard.ch_statuses.ch1.limit2      =  bits.get(4..6).unwrap().load_le::<u8>();
+            rw_guard.ch_statuses.ch1.limit1      =  bits.get(2..4).unwrap().load_le::<u8>();
+            rw_guard.ch_statuses.ch1.overrange   = *bits.get(1).unwrap() as bool;
+            rw_guard.ch_statuses.ch1.underrange  = *bits.get(0).unwrap() as bool;
+        },
+        2 => {
+            rw_guard.ch_values.ch2.copy_from_bitslice(bits.get(16..32).unwrap());
+            rw_guard.ch_statuses.ch2.txpdo_state = *bits.get(14).unwrap() as bool;
+            rw_guard.ch_statuses.ch2.err         = *bits.get(6).unwrap() as bool;
+            rw_guard.ch_statuses.ch2.limit2      =  bits.get(4..6).unwrap().load_le::<u8>();
+            rw_guard.ch_statuses.ch2.limit1      =  bits.get(2..4).unwrap().load_le::<u8>();
+            rw_guard.ch_statuses.ch2.overrange   = *bits.get(1).unwrap() as bool;
+            rw_guard.ch_statuses.ch2.underrange  = *bits.get(0).unwrap() as bool;
+        },
+        3 => {
+            rw_guard.ch_values.ch3.copy_from_bitslice(bits.get(16..32).unwrap());
+            rw_guard.ch_statuses.ch3.txpdo_state = *bits.get(14).unwrap() as bool;
+            rw_guard.ch_statuses.ch3.err         = *bits.get(6).unwrap() as bool;
+            rw_guard.ch_statuses.ch3.limit2      =  bits.get(4..6).unwrap().load_le::<u8>();
+            rw_guard.ch_statuses.ch3.limit1      =  bits.get(2..4).unwrap().load_le::<u8>();
+            rw_guard.ch_statuses.ch3.overrange   = *bits.get(1).unwrap() as bool;
+            rw_guard.ch_statuses.ch3.underrange  = *bits.get(0).unwrap() as bool;
+        },
+        4 => {
+            rw_guard.ch_values.ch4.copy_from_bitslice(bits.get(16..32).unwrap());
+            rw_guard.ch_statuses.ch4.txpdo_state = *bits.get(14).unwrap() as bool;
+            rw_guard.ch_statuses.ch4.err         = *bits.get(6).unwrap() as bool;
+            rw_guard.ch_statuses.ch4.limit2      =  bits.get(4..6).unwrap().load_le::<u8>();
+            rw_guard.ch_statuses.ch4.limit1      =  bits.get(2..4).unwrap().load_le::<u8>();
+            rw_guard.ch_statuses.ch4.overrange   = *bits.get(1).unwrap() as bool;
+            rw_guard.ch_statuses.ch4.underrange  = *bits.get(0).unwrap() as bool;
+        },
+        _ => {unreachable!();}
+    }
+
 }
 
 pub static TERM_EL1889: LazyLock<Arc<RwLock<DITerm>>> = LazyLock::new(|| {

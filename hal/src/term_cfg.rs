@@ -1,6 +1,14 @@
 // This file probably needs to be used as a module by another file to handle the cyclic tasks in the primary loop
 use bitvec::prelude::*;
 
+#[repr(u8)]
+pub enum TermChannel { // Channels are always physically labeled starting from 1
+    Ch1 = 1, Ch2,  Ch3,  Ch4,
+    Ch5,     Ch6,  Ch7,  Ch8,
+    Ch9,     Ch10, Ch11, Ch12,
+    Ch13,    Ch14, Ch15, Ch16
+}
+
 pub enum ElectricalObservable {
     Voltage(f32),
     Current(f32),
@@ -90,58 +98,100 @@ pub struct DOTerm {
 //     }
 // }
 
-pub struct AITerm {
-    pub v_or_i: VoltageOrCurrent,
-    pub input_range: InputRange,
-    pub value: BitVec<u8, Lsb0>,
-    pub num_of_channels: u8,
-    pub underrange: bool,
-    pub overrange: bool,
-    pub limit1: u8,
-    pub limit2: u8,
-    pub err: bool,
-    pub txpdo_state: bool,
-    pub txpdo_toggle: bool,
+pub struct Analog4ChValues {
+    pub ch1: BitVec<u8, Lsb0>,
+    pub ch2: BitVec<u8, Lsb0>,
+    pub ch3: BitVec<u8, Lsb0>,
+    pub ch4: BitVec<u8, Lsb0>,
 }
 
-impl AITerm {
-    fn new(v_or_i: VoltageOrCurrent,
-           input_range: InputRange,
-           value: BitVec<u8, Lsb0>,
-           num_of_channels: u8,
-           underrange: bool,
-           overrange: bool,
-           limit1: u8,
-           limit2: u8,
-           err: bool,
-           txpdo_state: bool,
-           txpdo_toggle: bool
-        ) -> Self {
+impl Analog4ChValues {
+    pub fn new() -> Self {
+        Self { // values u16 each
+            ch1: BitVec::<u8, Lsb0>::repeat(false, 16),
+            ch2: BitVec::<u8, Lsb0>::repeat(false, 16),
+            ch3: BitVec::<u8, Lsb0>::repeat(false, 16),
+            ch4: BitVec::<u8, Lsb0>::repeat(false, 16)
+        }
+    }
+}
+
+pub struct Analog4ChStatuses {
+    pub ch1: El30xxStatuses,
+    pub ch2: El30xxStatuses,
+    pub ch3: El30xxStatuses,
+    pub ch4: El30xxStatuses,
+}
+
+impl Analog4ChStatuses {
+    pub fn new() -> Self {
+        Self {
+            ch1: El30xxStatuses::new(),
+            ch2: El30xxStatuses::new(),
+            ch3: El30xxStatuses::new(),
+            ch4: El30xxStatuses::new(),
+        }
+    }
+}
+
+pub struct El30xxStatuses {
+    pub txpdo_toggle: bool,
+    pub txpdo_state: bool,
+    pub err: bool,
+    pub limit1: u8,
+    pub limit2: u8,
+    pub underrange: bool,
+    pub overrange: bool
+}
+
+impl El30xxStatuses {
+    pub fn new() -> Self {
+        Self {
+            txpdo_toggle: false,
+            txpdo_state: false,
+            err: false,
+            limit1: 0b00,
+            limit2: 0b00,
+            underrange: false,
+            overrange: false
+        }
+    }
+}
+
+pub struct AITerm4Ch {
+    pub v_or_i: VoltageOrCurrent,
+    pub input_range: InputRange,
+    pub num_of_channels: u8,
+    pub ch_values: Analog4ChValues,
+    pub ch_statuses: Analog4ChStatuses
+}
+
+impl AITerm4Ch {
+    fn new(
+            v_or_i: VoltageOrCurrent,
+            input_range: InputRange,
+            num_of_channels: u8,
+            ch_values: Analog4ChValues,
+            ch_statuses: Analog4ChStatuses) -> Self {
         Self {
             v_or_i,
             input_range,
-            value,
             num_of_channels,
-            underrange,
-            overrange,
-            limit1,
-            limit2,
-            err,
-            txpdo_state,
-            txpdo_toggle
+            ch_values,
+            ch_statuses
         }
     }
 }
 
-impl Getter for AITerm {
-    fn read(&self) -> ElectricalObservable {
-        let mut raw_int = &self.value.clone();
-        if self.v_or_i == VoltageOrCurrent::Current {
-            return ElectricalObservable::Current((raw_int.load::<u16>() as f32 / 32767.0) * 10.0)
-        }
-        else {
-            unreachable!("Voltage signal AITerm detected. This is not yet implemented")
-        }
-        // Don't have access to any EL AI terminal that takes in voltage right now
-    }
-}
+// impl Getter for AITerm4Ch {
+//     fn read(&self) -> ElectricalObservable {
+//         let mut raw_int = &self.ch_values.ch1.clone();
+//         if self.v_or_i == VoltageOrCurrent::Current {
+//             return ElectricalObservable::Current((raw_int.load::<u16>() as f32 / 32767.0) * 10.0)
+//         }
+//         else {
+//             unreachable!("Voltage signal AITerm detected. This is not yet implemented")
+//         }
+//         // Don't have access to any EL AI terminal that takes in voltage right now
+//     }
+// }
