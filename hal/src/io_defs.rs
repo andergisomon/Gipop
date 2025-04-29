@@ -2,14 +2,6 @@ use crate::term_cfg::*;
 use bitvec::prelude::*;
 use std::sync::{Arc, RwLock, LazyLock};
 
-pub trait TxPDO {
-    fn parse(&self, bits: &BitSlice<u8, Lsb0>);
-}
-
-pub trait RxPDO {
-    fn parse(&self, bits: &BitSlice<u8, Lsb0>);
-}
-
 pub static TERM_KL1889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
@@ -119,7 +111,7 @@ pub static TERM_EL1889: LazyLock<Arc<RwLock<DITerm>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
             DITerm {
-                values: BitVec::<u8, Lsb0>::repeat(false, 16), // Capacity must match num_of_channels
+                values: BitVec::<u8, Lsb0>::repeat(false, 16), // Capacity must match num_of_channels (yes ik i couldve used dynamic dispatch here, zig's comptime would be great here)
                 num_of_channels: 16,
             }
         )
@@ -148,7 +140,7 @@ pub static TERM_EL2889: LazyLock<Arc<RwLock<DOTerm>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
             DOTerm {
-                values: BitVec::<u8, Lsb0>::repeat(false, 16), // Capacity must match num_of_channels
+                values: BitVec::<u8, Lsb0>::repeat(false, 16), // Capacity must match num_of_channels (yes ik i couldve used dynamic dispatch here, zig's comptime would be great here)
                 num_of_channels: 16,
             }
         )

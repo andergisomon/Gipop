@@ -1,4 +1,3 @@
-// This file probably needs to be used as a module by another file to handle the cyclic tasks in the primary loop
 use bitvec::prelude::*;
 use std::ops::Deref;
 
@@ -80,6 +79,11 @@ pub struct DITerm {
     pub num_of_channels: u8,
 }
 
+// how to use:
+// let mut read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
+// if read_guard.read(TermChannel::Ch11).unwrap() == ElectricalObservable::Simple(1) {
+//     log::info!("Limit switch hit");
+// }
 impl Getter for DITerm {
     fn read(&self, channel: TermChannel) -> Result<ElectricalObservable, String> {
         let channel: usize = channel as usize;
@@ -104,6 +108,9 @@ pub struct DOTerm {
 
 // need to acquire write lock to DO terminal's static instance of LazyLock<Arc<RwLock<DOTerm>>>
 // e.g. &mut *TERM_EL3024.write().expect("Acquire TERM_EL2889 write guard").write(...)
+// how to use:
+// let mut wr_guard = &mut *TERM_EL2889.write().expect("acquire EL3024 write lock");
+// wr_guard.write(true, TermChannel::Ch16).unwrap();
 impl Setter for DOTerm {
     fn write(&mut self, data_to_write: bool, channel: TermChannel) -> Result<(), String> {
         let channel: usize = channel as usize;

@@ -103,7 +103,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             wr_guard.write(true, TermChannel::Ch16).unwrap();
         }
 
-        // copy inputs to devices
+        // Physical Input Terminal --> Program Code Input Terminal Object
         for subdevice in group.iter(&maindevice) {
             let input = subdevice.inputs_raw();
             let input_bits = input.view_bits::<Lsb0>();
@@ -118,8 +118,9 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             }
         }
 
+        // Program Code Output Terminal Object --> Physical Output Terminal
         for subdevice in group.iter(&maindevice) {
-            let mut output = subdevice.outputs_raw_mut(); // these two lines cause the program to freeze
+            let mut output = subdevice.outputs_raw_mut();
             let output_bits = output.view_bits_mut::<Lsb0>();
 
             if subdevice.name() == "EL2889" {
