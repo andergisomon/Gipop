@@ -98,6 +98,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
         group.tx_rx(&maindevice).await.expect("TX/RX");
 
+        { // use fn write() implemented by Setter trait
+            let mut wr_guard = &mut *TERM_EL2889.write().expect("acquire EL3024 write lock");
+            wr_guard.write(true, TermChannel::Ch16).unwrap();
+        }
+
         // copy inputs to devices
         for subdevice in group.iter(&maindevice) {
             let input = subdevice.inputs_raw();
@@ -121,19 +126,18 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 el2889_handler(output_bits, &*TERM_EL2889);
             }
         }
-    
-    
 
-        // let mut read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
-        // if read_guard.values[10] {
-        //     log::info!("Limit switch hit");
-        // }
-
-        let mut read_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
-        log::info!("EL3024 Ch1 Underrange Bit: {}", read_guard.ch_statuses.ch1.underrange);
-        log::info!("EL3024 Ch3 Underrange Bit: {}", read_guard.ch_statuses.ch3.underrange);
-        log::info!("EL3024 Ch1 Error Bit: {}", read_guard.ch_statuses.ch1.err);
-        log::info!("EL3024 Ch3 Error Bit: {}", read_guard.ch_statuses.ch3.err);
+        { // use fn read() implemented by Getter trait
+            let mut read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
+            if read_guard.read(TermChannel::Ch11).unwrap() == ElectricalObservable::Simple(1) {
+                log::info!("Limit switch hit");
+            }
+        }
+        // let read_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
+        // log::info!("EL3024 Ch1 Underrange Bit: {}", read_guard.ch_statuses.ch1.underrange);
+        // log::info!("EL3024 Ch3 Underrange Bit: {}", read_guard.ch_statuses.ch3.underrange);
+        // log::info!("EL3024 Ch1 Error Bit: {}", read_guard.ch_statuses.ch1.err);
+        // log::info!("EL3024 Ch3 Error Bit: {}", read_guard.ch_statuses.ch3.err);
     }
 
     let group = group.into_safe_op(&maindevice).await.expect("OP -> SAFE-OP");

@@ -10,6 +10,7 @@ pub enum TermChannel { // Channels are always physically labeled starting from 1
     Ch13,    Ch14, Ch15, Ch16
 }
 
+#[derive(PartialEq)]
 pub enum ElectricalObservable {
     Voltage(f32),
     Current(f32),
@@ -52,7 +53,7 @@ pub trait Getter {
 }
 
 pub trait Setter {
-    fn write(&self, data_to_write: &BitSlice<u8, Lsb0>, channel: TermChannel) -> Result<(), anyhow::Error>;
+    fn write(&mut self, data_to_write: bool, channel: TermChannel) -> Result<(), String>;
 }
 
 pub enum KBusTerminalGender {
@@ -101,13 +102,18 @@ pub struct DOTerm {
     pub num_of_channels: u8,
 }
 
-// impl Setter for DOTerm {
-//     fn write(&self, data_to_write) -> > Result<(), anyhow::Error> {
-//         // TODO
-//         // get address from &self, write data_to_write at address
-//         ;
-//     }
-// }
+// need to acquire write lock to DO terminal's static instance of LazyLock<Arc<RwLock<DOTerm>>>
+// e.g. &mut *TERM_EL3024.write().expect("Acquire TERM_EL2889 write guard").write(...)
+impl Setter for DOTerm {
+    fn write(&mut self, data_to_write: bool, channel: TermChannel) -> Result<(), String> {
+        let channel: usize = channel as usize;
+        if channel > (self.num_of_channels as usize) {
+            return Err("Specified channel doesn't exist. Index out of bounds".into())
+        }
+        self.values.set(channel - 1, data_to_write);
+        Ok(())
+    }
+}
 
 pub struct Analog4ChValues {
     pub ch1: BitVec<u8, Lsb0>,
