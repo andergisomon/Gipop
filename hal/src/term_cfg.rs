@@ -1,5 +1,6 @@
 // This file probably needs to be used as a module by another file to handle the cyclic tasks in the primary loop
 use bitvec::prelude::*;
+use std::ops::Deref;
 
 #[repr(u8)]
 pub enum TermChannel { // Channels are always physically labeled starting from 1
@@ -12,7 +13,7 @@ pub enum TermChannel { // Channels are always physically labeled starting from 1
 pub enum ElectricalObservable {
     Voltage(f32),
     Current(f32),
-    Simple(u8),
+    Simple(u8), // Boolean values
 }
 
 pub enum InputRange {
@@ -47,11 +48,11 @@ pub struct OutputTerm<'maindevice> {
 }
 
 pub trait Getter {
-    fn read(&self) -> ElectricalObservable;
+    fn read(&self, channel: TermChannel) -> Result<ElectricalObservable, String>;
 }
 
 pub trait Setter {
-    fn write(&self, data_to_write: &BitSlice<u8, Lsb0>) -> Result<(), anyhow::Error>;
+    fn write(&self, data_to_write: &BitSlice<u8, Lsb0>, channel: TermChannel) -> Result<(), anyhow::Error>;
 }
 
 pub enum KBusTerminalGender {
@@ -74,16 +75,26 @@ pub struct BK1120_Coupler { // Should probably abstract this away but we're fine
 }
 
 pub struct DITerm {
-    pub values: BitVec<u8, Lsb0>,
+    pub values: BitVec<u8, Lsb0>, // Length should match num_of_channels
     pub num_of_channels: u8,
 }
 
 impl Getter for DITerm {
-    fn read(&self) -> ElectricalObservable {
-        let readout = self.values.clone().load::<u8>();
-        ElectricalObservable::Simple(readout)
+    fn read(&self, channel: TermChannel) -> Result<ElectricalObservable, String> {
+        let channel: usize = channel as usize;
+        let values = self.values.clone();
+
+        let readout = match values.get(channel - 1) {
+            Some(bit) => bit,
+            None => return Err(format!("Error reading channel {}: Index out of bounds", channel)),
+        };
+
+        let readout_cast = readout.deref().clone() as u8;
+
+        Ok(ElectricalObservable::Simple(readout_cast))
     }
 }
+
 
 pub struct DOTerm {
     pub values: BitVec<u8, Lsb0>,
@@ -183,15 +194,25 @@ impl AITerm4Ch {
     }
 }
 
-// impl Getter for AITerm4Ch {
-//     fn read(&self) -> ElectricalObservable {
-//         let mut raw_int = &self.ch_values.ch1.clone();
-//         if self.v_or_i == VoltageOrCurrent::Current {
-//             return ElectricalObservable::Current((raw_int.load::<u16>() as f32 / 32767.0) * 10.0)
-//         }
-//         else {
-//             unreachable!("Voltage signal AITerm detected. This is not yet implemented")
-//         }
-//         // Don't have access to any EL AI terminal that takes in voltage right now
-//     }
-// }
+impl Getter for AITerm4Ch {
+    fn read(&self, channel: TermChannel) -> Result<ElectricalObservable, String> {
+        let channel: u8 = channel as u8;
+
+        let raw_int: BitVec::<u8, Lsb0> =
+            match channel {
+                1 => self.ch_values.ch1.clone(),
+                2 => self.ch_values.ch2.clone(),
+                3 => self.ch_values.ch3.clone(),
+                4 => self.ch_values.ch4.clone(),
+                _ => return Err("Invalid channel. Can only specify Channels 1-4.".into())
+            };
+
+        if self.v_or_i == VoltageOrCurrent::Current {
+            return Ok(ElectricalObservable::Current((raw_int.load::<u16>() as f32 / 32767.0) * 10.0))
+        }
+        else {
+            unreachable!("Voltage signal AITerm detected. This is not yet implemented")
+        }
+        // Don't have access to any EL AI terminal that takes in voltage right now
+    }
+}
