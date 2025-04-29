@@ -139,6 +139,18 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         // log::info!("EL3024 Ch3 Underrange Bit: {}", read_guard.ch_statuses.ch3.underrange);
         // log::info!("EL3024 Ch1 Error Bit: {}", read_guard.ch_statuses.ch1.err);
         // log::info!("EL3024 Ch3 Error Bit: {}", read_guard.ch_statuses.ch3.err);
+
+        let peek_kl1889 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
+        let peek_input = peek_kl1889.inputs_raw()[2]; // SB1
+        let peek_bits = peek_input.view_bits::<Lsb0>();
+        let subslice = &peek_bits[0..8];
+        let value: u8 = subslice.load::<u8>();
+
+
+        log::info!(
+            "SB1 byte: {:08b}",
+            value
+        );
     }
 
     let group = group.into_safe_op(&maindevice).await.expect("OP -> SAFE-OP");
