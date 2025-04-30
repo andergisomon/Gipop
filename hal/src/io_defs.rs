@@ -32,6 +32,24 @@ pub static TERM_KL2889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
     )
 });
 
+pub fn kl2889_handler(dst: &mut BitSlice<u8, Lsb0>, bits: &Arc<RwLock<KBusSubDevice>>) {
+    let rd_guard = bits.read().expect("Acquire TERM_KL2889 read guard"); // RO access
+
+    let num_of_channels = rd_guard.tx_data.as_ref().unwrap().len();
+
+    if dst.len() != num_of_channels as usize {
+        panic!(
+            "Actual DOTerm Values len {} does not match defined number of channels {}",
+            dst.len(),
+            num_of_channels
+        );
+    }
+
+    for i in 0..num_of_channels as usize {
+        dst.set(i, rd_guard.tx_data.as_ref().unwrap()[i]);
+    }
+}
+
 pub static TERM_EL3024: LazyLock<Arc<RwLock<AITerm4Ch>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
