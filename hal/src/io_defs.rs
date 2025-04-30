@@ -10,6 +10,8 @@ pub static TERM_KL1889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
                 size_in_bits: 16,
                 is_kl1212: false,
                 gender: KBusTerminalGender::Input,
+                tx_data: None,
+                rx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 16)), // Capacity must match input process image size
             }
         )
     )
@@ -23,6 +25,8 @@ pub static TERM_KL2889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
                 size_in_bits: 16,
                 is_kl1212: false,
                 gender: KBusTerminalGender::Output,
+                tx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 16)), // Capacity must match output process image size
+                rx_data: None
             }
         )
     )
@@ -162,5 +166,56 @@ pub fn el2889_handler(dst: &mut BitSlice<u8, Lsb0>, bits: &Arc<RwLock<DOTerm>>) 
 
     for i in 0..num_of_channels as usize {
         dst.set(i, rd_guard.values[i]);
+    }
+}
+
+pub static TERM_KL6581: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| {
+    Arc::new(
+        RwLock::new(
+            KBusSubDevice {
+                intelligent: true,
+                size_in_bits: 24, // 12 bits input, 12 bits output
+                is_kl1212: false,
+                gender: KBusTerminalGender::Enby,
+                tx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 12)), // Capacity must match output process image size
+                rx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 12)), // Capacity must match input process image size
+            }
+        )
+    )
+});
+
+pub fn kl6581_output_handler(dst: &mut BitSlice<u8, Lsb0>, bits: &Arc<RwLock<KBusSubDevice>>) {
+    let rd_guard = bits.read().expect("Acquire TERM_KL6581 read guard"); // RO access
+
+    let num_of_channels = rd_guard.tx_data.as_ref().unwrap().len();
+
+    if dst.len() != num_of_channels as usize {
+        panic!(
+            "Actual DOTerm Values len {} does not match defined number of channels {}",
+            dst.len(),
+            num_of_channels
+        );
+    }
+
+    for i in 0..num_of_channels as usize {
+        dst.set(i, rd_guard.tx_data.as_ref().unwrap()[i]);
+    }
+}
+
+pub fn kl6581_input_handler(dst: &Arc<RwLock<KBusSubDevice>>, bits: &BitSlice<u8, Lsb0>) {
+    let mut rw_guard = dst.write().expect("Acquire TERM_KL6581 read/write guard");
+
+    let num_of_channels = rw_guard.rx_data.as_ref().unwrap().len();
+
+    if bits.len() != num_of_channels as usize {
+        panic!(
+            "Actual DITerm Values len {} does not match defined number of channels {}",
+            bits.len(),
+            num_of_channels
+        );
+    }
+
+    for i in 0..num_of_channels as usize {
+        rw_guard.rx_data.as_mut().unwrap().set(i, bits[i]);
     }
 }

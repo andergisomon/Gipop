@@ -61,12 +61,15 @@ pub enum KBusTerminalGender {
     Input, // 0b10
 }
 
+// TODO: Create constructor
 pub struct KBusSubDevice {
     // name: u8, // for intelligent terminals, name is the 4-digit decimal in 'KLXXXX'
     pub intelligent: bool, // intelligent or simple terminal? 0 -> intelligent, 1 -> simple
     pub size_in_bits: u8, // terminal size in bits
     pub is_kl1212: bool, // is the terminal KL1212?
     pub gender: KBusTerminalGender, // 00 -> KL1202 or KL2212 (digital terminals with both input and output), 01 -> output terminal, 10 -> input terminal
+    pub tx_data: Option<BitVec<u8, Lsb0>>, // Output data for Simple Terminals
+    pub rx_data: Option<BitVec<u8, Lsb0>>, // Input data for Simple Terminals
 }
 
 pub struct BK1120_Coupler { // Should probably abstract this away but we're fine with this for now
