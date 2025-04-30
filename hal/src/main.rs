@@ -81,6 +81,12 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 .await?;
             subdevice.sdo_write(0x1c13, 0, 0x4u8).await?;
         }
+
+        if subdevice.name() == "BK1120" {
+            let coupler_ctrl = subdevice.sdo_read::<u16>(0xf100, 01);
+            let coupler_ctrl = coupler_ctrl.await.unwrap();
+            log::info!("BK1120 CouplerCtrl: {:?}", coupler_ctrl);
+        }
     }
 
     // Move from PRE-OP -> SAFE-OP -> OP
@@ -116,6 +122,10 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 el3024_handler(&*TERM_EL3024, input_bits, TermChannel::Ch1);
                 el3024_handler(&*TERM_EL3024, input_bits, TermChannel::Ch3);
             }
+
+            if subdevice.name() == "BK1120" {
+                kl6581_input_handler(&*TERM_KL6581, input_bits);
+            }
         }
 
         // Program Code Output Terminal Object --> Physical Output Terminal
@@ -126,10 +136,13 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             if subdevice.name() == "EL2889" {
                 el2889_handler(output_bits, &*TERM_EL2889);
             }
+            if subdevice.name() == "BK1120" {
+                kl6581_output_handler(output_bits, &*TERM_KL6581);
+            }
         }
 
         { // use fn read() implemented by Getter trait
-            let mut read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
+            let read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
             if read_guard.read(TermChannel::Ch11).unwrap() == ElectricalObservable::Simple(1) {
                 log::info!("Limit switch hit");
             }
@@ -161,12 +174,12 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             let subslice = &peek_bits[0..8];
             let value: u8 = subslice.load::<u8>();
             
-            if value != 0 {
-                log::info!(
-                    "DB3 bytes: {:08b}",
-                    value
-                );
-            }
+            // if value != 0 {
+            //     log::info!(
+            //         "DB3 bytes: {:08b}",
+            //         value
+            //     );
+            // }
         }
 
         // {
@@ -184,6 +197,18 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         //     }
         // }
 
+        {
+            let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
+            let peek_input = peek_kl6581.inputs_raw()[1]; // Status high byte
+            let peek_bits = peek_input.view_bits::<Lsb0>();
+            let subslice = &peek_bits[0]; // "K bus overrun" bit
+        
+            // log::info!(
+            //     "Status 'K bus overrun' bit: {}",
+            //     subslice
+            // );
+        }
+
         // {
         //     let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
         //     let peek_input = peek_kl6581.outputs_raw()[2]; // CB1
@@ -198,10 +223,31 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
         {
             let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
-            let mut peek_input = peek_kl6581.outputs_raw_mut()[2]; // CB1
-            let mut peek_bits = peek_input.view_bits_mut::<Lsb0>();
-            peek_bits.set(1, false);
+            let mut peek_input = peek_kl6581.outputs_raw_mut()[8]; // DB3
+            let peek_bits = peek_input.view_bits_mut::<Lsb0>();
+            peek_bits.fill(false);
         }
+
+        {
+            let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
+            let mut peek_input = peek_kl6581.outputs_raw_mut()[2]; // CB
+            let peek_bits = peek_input.view_bits_mut::<Lsb0>();
+            peek_bits.fill(false);
+        }
+
+        // {
+        //     let peek_kl2889 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
+        //     let mut peek_input = peek_kl2889.outputs_raw_mut()[14]; // KL2889
+        //     let peek_bits = peek_input.view_bits_mut::<Lsb0>();
+        //     peek_bits.fill(true);
+        // }
+
+        // {
+        //     let peek_el2889 = group.subdevice(&maindevice, 2).expect("No EL2889 found as 2nd EK coupler terminal");
+        //     let mut peek_input = peek_el2889.outputs_raw_mut(); // EL2889
+        //     let peek_bits = peek_input.view_bits_mut::<Lsb0>();
+        //     peek_bits.fill(true);
+        // }
 
     }
 
