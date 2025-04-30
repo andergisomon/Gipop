@@ -35,12 +35,12 @@ pub enum VoltageOrCurrent {
     Current
 }
 
-pub const EL1889_IMG_LEN: u8 = 2;
-pub const KL1889_IMG_LEN: u8 = 2;
-pub const EL2889_IMG_LEN: u8 = 2;
-pub const KL2889_IMG_LEN: u8 = 2;
-pub const KL6581_IMG_LEN: u8 = 12;
-pub const EL3024_IMG_LEN: u8 = 16; // 16 bytes total, for each channel value is 2 bytes and status is 2 bytes
+pub const EL1889_IMG_LEN_BITS: u8 = 2*8;
+pub const KL1889_IMG_LEN_BITS: u8 = 2*8;
+pub const EL2889_IMG_LEN_BITS: u8 = 2*8;
+pub const KL2889_IMG_LEN_BITS: u8 = 2*8;
+pub const KL6581_IMG_LEN_BITS: u8 = 12*2*8; // 24 bytes total, 12 each for Input/Output
+pub const EL3024_IMG_LEN_BITS: u8 = 16*8; // 16 bytes total, for each channel value is 2 bytes and status is 2 bytes
 
 pub trait Getter { // T can be TermChannel or just plain u8 (easier for EnOcean)
     fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String>;
@@ -50,6 +50,7 @@ pub trait Setter { // T can be TermChannel or just plain u8 (easier for EnOcean)
     fn write(&mut self, data_to_write: bool, channel: ChannelInput) -> Result<(), String>;
 }
 
+#[derive(PartialEq)]
 pub enum KBusTerminalGender {
     Enby, // 0b00
     Output, // 0b01
@@ -74,7 +75,14 @@ impl Getter for KBusSubDevice {
             ChannelInput::Index(idx) => idx as usize, // Index starts at 0
         };
 
-        let values = self.tx_data.as_ref().unwrap().clone();
+        let mut values: BitVec<u8> = BitVec::<u8, Lsb0>::repeat(false, 16);
+
+        if self.gender == KBusTerminalGender::Input {
+            values = self.rx_data.as_ref().unwrap().clone();
+        }
+        if self.gender == KBusTerminalGender::Output {
+            values = self.tx_data.as_ref().unwrap().clone();
+        }
 
         let readout = match values.get(channel) {
             Some(bit) => bit,

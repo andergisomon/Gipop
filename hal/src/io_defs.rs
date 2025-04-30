@@ -7,25 +7,43 @@ pub static TERM_KL1889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
         RwLock::new(
             KBusSubDevice {
                 intelligent: false,
-                size_in_bits: 16,
+                size_in_bits: KL1889_IMG_LEN_BITS,
                 is_kl1212: false,
                 gender: KBusTerminalGender::Input,
                 tx_data: None,
-                rx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 16)), // Capacity must match input process image size
+                rx_data: Some(BitVec::<u8, Lsb0>::repeat(false, KL1889_IMG_LEN_BITS as usize)), // Capacity must match input process image size
             }
         )
     )
 });
+
+pub fn kl1889_handler(dst: &Arc<RwLock<KBusSubDevice>>, bits: &BitSlice<u8, Lsb0>) {
+    let mut rw_guard = dst.write().expect("Acquire TERM_KL1889 read/write guard");
+
+    let num_of_channels = rw_guard.rx_data.as_ref().unwrap().len();
+
+    if bits.len() != num_of_channels as usize {
+        panic!(
+            "Actual DITerm Values len {} does not match defined number of channels {}",
+            bits.len(),
+            num_of_channels
+        );
+    }
+
+    for i in 0..num_of_channels as usize {
+        rw_guard.rx_data.as_mut().unwrap().set(i, bits[i]);
+    }
+}
 
 pub static TERM_KL2889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
             KBusSubDevice {
                 intelligent: false,
-                size_in_bits: 16,
+                size_in_bits: KL2889_IMG_LEN_BITS,
                 is_kl1212: false,
                 gender: KBusTerminalGender::Output,
-                tx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 16)), // Capacity must match output process image size
+                tx_data: Some(BitVec::<u8, Lsb0>::repeat(false, KL2889_IMG_LEN_BITS as usize)), // Capacity must match output process image size
                 rx_data: None
             }
         )
@@ -133,8 +151,8 @@ pub static TERM_EL1889: LazyLock<Arc<RwLock<DITerm>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
             DITerm {
-                values: BitVec::<u8, Lsb0>::repeat(false, 16), // Capacity must match num_of_channels (yes ik i couldve used dynamic dispatch here, zig's comptime would be great here)
-                num_of_channels: 16,
+                values: BitVec::<u8, Lsb0>::repeat(false, EL1889_IMG_LEN_BITS as usize), // Capacity must match num_of_channels (yes ik i couldve used dynamic dispatch here, zig's comptime would be great here)
+                num_of_channels: EL1889_IMG_LEN_BITS,
             }
         )
     )
@@ -162,8 +180,8 @@ pub static TERM_EL2889: LazyLock<Arc<RwLock<DOTerm>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
             DOTerm {
-                values: BitVec::<u8, Lsb0>::repeat(false, 16), // Capacity must match num_of_channels (yes ik i couldve used dynamic dispatch here, zig's comptime would be great here)
-                num_of_channels: 16,
+                values: BitVec::<u8, Lsb0>::repeat(false, EL2889_IMG_LEN_BITS as usize), // Capacity must match num_of_channels (yes ik i couldve used dynamic dispatch here, zig's comptime would be great here)
+                num_of_channels: EL2889_IMG_LEN_BITS,
             }
         )
     )
@@ -192,11 +210,11 @@ pub static TERM_KL6581: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
         RwLock::new(
             KBusSubDevice {
                 intelligent: true,
-                size_in_bits: 24*8, // 12 bytes input, 12 bytes output
+                size_in_bits: KL6581_IMG_LEN_BITS, // 12 bytes input, 12 bytes output
                 is_kl1212: false,
                 gender: KBusTerminalGender::Enby,
-                tx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 12*8)), // Capacity must match output process image size
-                rx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 12*8)), // Capacity must match input process image size
+                tx_data: Some(BitVec::<u8, Lsb0>::repeat(false, (KL6581_IMG_LEN_BITS / 2) as usize)), // Capacity must match output process image size
+                rx_data: Some(BitVec::<u8, Lsb0>::repeat(false, (KL6581_IMG_LEN_BITS / 2) as usize)), // Capacity must match input process image size
             }
         )
     )

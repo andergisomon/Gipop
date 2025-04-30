@@ -82,11 +82,6 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             subdevice.sdo_write(0x1c13, 0, 0x4u8).await?;
         }
 
-        if subdevice.name() == "BK1120" {
-            let coupler_ctrl = subdevice.sdo_read::<u16>(0xf100, 01);
-            let coupler_ctrl = coupler_ctrl.await.unwrap();
-            log::info!("BK1120 CouplerCtrl: {:?}", coupler_ctrl);
-        }
     }
 
     // Move from PRE-OP -> SAFE-OP -> OP
@@ -137,6 +132,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 // View only KL6581 portion of the input process image (bytes 2-13)
                 // indexing is by bit in here, not by byte
                 kl6581_input_handler(&*TERM_KL6581, &input_bits[16..112]);
+                kl1889_handler(&*TERM_KL1889, &input_bits[112..128]);
             }
         }
 
@@ -153,16 +149,18 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 // indexing is by bit in here, not by byte.
                 kl6581_output_handler(&mut output_bits[16..112], &*TERM_KL6581);
                 kl2889_handler(&mut output_bits[112..128], &*TERM_KL2889);
-
-                // let kl2889 = &mut output_bits[112..128]; // this works
-                // kl2889.fill(true);
             }
         }
 
         { // use fn read() implemented by Getter trait
-            let read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
-            if read_guard.read(ChannelInput::Channel(TermChannel::Ch11)).unwrap() == ElectricalObservable::Simple(1) {
-                log::info!("Limit switch hit");
+            let rd_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
+            if rd_guard.read(ChannelInput::Channel(TermChannel::Ch11)).unwrap() == ElectricalObservable::Simple(1) {
+                log::info!("(EL1889) Limit switch hit");
+            }
+
+            let rd_guard = &*TERM_KL1889.read().expect("Acquire TERM_KL1889 read guard");
+            if rd_guard.read(ChannelInput::Channel(TermChannel::Ch7)).unwrap() == ElectricalObservable::Simple(1) {
+                log::info!("(KL1889) Limit switch hit");
             }
         }
 
