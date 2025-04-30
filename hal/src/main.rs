@@ -154,9 +154,6 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 kl6581_output_handler(&mut output_bits[16..112], &*TERM_KL6581);
                 kl2889_handler(&mut output_bits[112..128], &*TERM_KL2889);
 
-                // let cb = &mut output_bits[16..24];
-                // cb.set(1, true);
-
                 // let kl2889 = &mut output_bits[112..128]; // this works
                 // kl2889.fill(true);
             }

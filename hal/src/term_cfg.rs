@@ -42,17 +42,6 @@ pub const KL2889_IMG_LEN: u8 = 2;
 pub const KL6581_IMG_LEN: u8 = 12;
 pub const EL3024_IMG_LEN: u8 = 16; // 16 bytes total, for each channel value is 2 bytes and status is 2 bytes
 
-// InputTerm and OutputTerm are meant for lower level access to inputs_raw(), outputs_raw() respectively, where the distinction between terminal types aren't important
-pub struct InputTerm<'maindevice> {
-    in_img_slice: &'maindevice BitSlice<u8, Lsb0>,
-    img_len: u8, // No. of bytes
-}
-
-pub struct OutputTerm<'maindevice> {
-    out_img_slice: &'maindevice BitSlice<u8, Lsb0>,
-    img_len: u8, // No. of bytes
-}
-
 pub trait Getter { // T can be TermChannel or just plain u8 (easier for EnOcean)
     fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String>;
 }
@@ -68,9 +57,6 @@ pub enum KBusTerminalGender {
 }
 
 // TODO: Create constructor
-// maybe this object shouldnt store data owned by subdevice, instead this object should only store information about the terminal
-// data stored by K bus subdevices should just use the objects we already defined; i.e., DOTerm, DITerm, etc.
-// nvm, we'll just implement the Getter/Setter traits for KBusSubDevice
 pub struct KBusSubDevice {
     // name: u8, // for intelligent terminals, name is the 4-digit decimal in 'KLXXXX'
     pub intelligent: bool, // intelligent or simple terminal? 0 -> intelligent, 1 -> simple
