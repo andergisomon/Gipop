@@ -105,8 +105,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         group.tx_rx(&maindevice).await.expect("TX/RX");
 
         { // use fn write() implemented by Setter trait
-            let mut wr_guard = &mut *TERM_EL2889.write().expect("acquire EL3024 write lock");
+            let wr_guard = &mut *TERM_EL2889.write().expect("acquire EL3024 write lock");
             wr_guard.write(true, TermChannel::Ch16).unwrap();
+
+            // let wr_guard = &mut *TERM_KL6581.write().expect("acquire KL6581 write lock");
+            // wr_guard.write(true, TermChannel::Ch2).unwrap(); // CB.1
         }
 
         // Physical Input Terminal --> Program Code Input Terminal Object
@@ -124,7 +127,9 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             }
 
             if subdevice.name() == "BK1120" {
-                kl6581_input_handler(&*TERM_KL6581, input_bits);
+                // View only KL6581 portion of the input process image (bytes 2-13)
+                // bruh. indexing is by bit in here, not by byte. this is wrong
+                // kl6581_input_handler(&*TERM_KL6581, &input_bits[2..14]);
             }
         }
 
@@ -137,7 +142,15 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 el2889_handler(output_bits, &*TERM_EL2889);
             }
             if subdevice.name() == "BK1120" {
-                kl6581_output_handler(output_bits, &*TERM_KL6581);
+                // View only KL6581 portion of the output process image (bytes 2-13)
+                // bruh. indexing is by bit in here, not by byte. this is wrong
+                // kl6581_output_handler(&mut output_bits[64..72], &*TERM_KL6581);
+                // let kl6581_outputs = &mut output_bits[2..14];
+                let cb = &mut output_bits[16..24];
+                cb.set(1, true);
+
+                let kl2889 = &mut output_bits[112..128]; // this works
+                kl2889.fill(true);
             }
         }
 
@@ -147,25 +160,6 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 log::info!("Limit switch hit");
             }
         }
-        // let read_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
-        // log::info!("EL3024 Ch1 Underrange Bit: {}", read_guard.ch_statuses.ch1.underrange);
-        // log::info!("EL3024 Ch3 Underrange Bit: {}", read_guard.ch_statuses.ch3.underrange);
-        // log::info!("EL3024 Ch1 Error Bit: {}", read_guard.ch_statuses.ch1.err);
-        // log::info!("EL3024 Ch3 Error Bit: {}", read_guard.ch_statuses.ch3.err);
-
-        // {
-        //     let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
-        //     let peek_input = peek_kl6581.inputs_raw()[2]; // SB1
-        //     let peek_bits = peek_input.view_bits::<Lsb0>();
-        //     let subslice = &peek_bits[0..8];
-        //     let value: u8 = subslice.load::<u8>();
-
-
-        //     log::info!(
-        //         "SB1 byte: {:08b}",
-        //         value
-        //     );
-        // }
 
         {
             let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
@@ -174,80 +168,13 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             let subslice = &peek_bits[0..8];
             let value: u8 = subslice.load::<u8>();
             
-            // if value != 0 {
-            //     log::info!(
-            //         "DB3 bytes: {:08b}",
-            //         value
-            //     );
-            // }
+            if value != 0 {
+                log::info!(
+                    "DB3 bytes: {:08b}",
+                    value
+                );
+            }
         }
-
-        // {
-        //     let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
-        //     let peek_input = peek_kl6581.inputs_raw()[4]; // ORG
-        //     let peek_bits = peek_input.view_bits::<Lsb0>();
-        //     let subslice = &peek_bits[0..8];
-        //     let value: u8 = subslice.load::<u8>();
-            
-        //     if value != 0 {
-        //         log::info!(
-        //             "ORG byte: {:08b}",
-        //             value
-        //         );
-        //     }
-        // }
-
-        {
-            let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
-            let peek_input = peek_kl6581.inputs_raw()[1]; // Status high byte
-            let peek_bits = peek_input.view_bits::<Lsb0>();
-            let subslice = &peek_bits[0]; // "K bus overrun" bit
-        
-            // log::info!(
-            //     "Status 'K bus overrun' bit: {}",
-            //     subslice
-            // );
-        }
-
-        // {
-        //     let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
-        //     let peek_input = peek_kl6581.outputs_raw()[2]; // CB1
-        //     let peek_bits = peek_input.view_bits::<Lsb0>();
-        //     let subslice = &peek_bits[0..8];
-        //     let value: u8 = subslice.load::<u8>();
-        //     log::info!(
-        //         "CB1 byte: {:08b}",
-        //         value
-        //     );
-        // }
-
-        {
-            let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
-            let mut peek_input = peek_kl6581.outputs_raw_mut()[8]; // DB3
-            let peek_bits = peek_input.view_bits_mut::<Lsb0>();
-            peek_bits.fill(false);
-        }
-
-        {
-            let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
-            let mut peek_input = peek_kl6581.outputs_raw_mut()[2]; // CB
-            let peek_bits = peek_input.view_bits_mut::<Lsb0>();
-            peek_bits.fill(false);
-        }
-
-        // {
-        //     let peek_kl2889 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
-        //     let mut peek_input = peek_kl2889.outputs_raw_mut()[14]; // KL2889
-        //     let peek_bits = peek_input.view_bits_mut::<Lsb0>();
-        //     peek_bits.fill(true);
-        // }
-
-        // {
-        //     let peek_el2889 = group.subdevice(&maindevice, 2).expect("No EL2889 found as 2nd EK coupler terminal");
-        //     let mut peek_input = peek_el2889.outputs_raw_mut(); // EL2889
-        //     let peek_bits = peek_input.view_bits_mut::<Lsb0>();
-        //     peek_bits.fill(true);
-        // }
 
     }
 
