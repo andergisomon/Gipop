@@ -108,6 +108,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             let wr_guard = &mut *TERM_EL2889.write().expect("acquire EL3024 write lock");
             wr_guard.write(true, ChannelInput::Channel(TermChannel::Ch16)).unwrap();
 
+            
+            let wr_guard = &mut *TERM_KL2889.write().expect("acquire KL2889 write lock");
+            for idx in 0..16 { // All 16 bits of KL2889
+                wr_guard.write(true, ChannelInput::Index(idx)).unwrap();
+            }
 
             let wr_guard = &mut *TERM_KL6581.write().expect("acquire KL6581 write lock");
             wr_guard.write(true, ChannelInput::Index(1)).unwrap(); // CB.1
@@ -147,12 +152,13 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 // View only KL6581 portion of the output process image (bytes 2-13)
                 // indexing is by bit in here, not by byte.
                 kl6581_output_handler(&mut output_bits[16..112], &*TERM_KL6581);
+                kl2889_handler(&mut output_bits[112..128], &*TERM_KL2889);
 
                 // let cb = &mut output_bits[16..24];
                 // cb.set(1, true);
 
-                let kl2889 = &mut output_bits[112..128]; // this works
-                kl2889.fill(true);
+                // let kl2889 = &mut output_bits[112..128]; // this works
+                // kl2889.fill(true);
             }
         }
 
