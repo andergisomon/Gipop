@@ -174,11 +174,11 @@ pub static TERM_KL6581: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
         RwLock::new(
             KBusSubDevice {
                 intelligent: true,
-                size_in_bits: 24, // 12 bits input, 12 bits output
+                size_in_bits: 24*8, // 12 bytes input, 12 bytes output
                 is_kl1212: false,
                 gender: KBusTerminalGender::Enby,
-                tx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 12)), // Capacity must match output process image size
-                rx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 12)), // Capacity must match input process image size
+                tx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 12*8)), // Capacity must match output process image size
+                rx_data: Some(BitVec::<u8, Lsb0>::repeat(false, 12*8)), // Capacity must match input process image size
             }
         )
     )
