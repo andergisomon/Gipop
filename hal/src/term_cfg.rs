@@ -2,11 +2,17 @@ use bitvec::prelude::*;
 use std::ops::Deref;
 
 #[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TermChannel { // Channels are always physically labeled starting from 1
     Ch1 = 1, Ch2,  Ch3,  Ch4,
     Ch5,     Ch6,  Ch7,  Ch8,
     Ch9,     Ch10, Ch11, Ch12,
     Ch13,    Ch14, Ch15, Ch16
+}
+
+pub enum ChannelInput {
+    Channel(TermChannel), // Simple DI/O terminals
+    Index(u8) // For EnOcean/intelligent digital terminals
 }
 
 #[derive(PartialEq)]
@@ -47,12 +53,12 @@ pub struct OutputTerm<'maindevice> {
     img_len: u8, // No. of bytes
 }
 
-pub trait Getter {
-    fn read(&self, channel: TermChannel) -> Result<ElectricalObservable, String>;
+pub trait Getter { // T can be TermChannel or just plain u8 (easier for EnOcean)
+    fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String>;
 }
 
-pub trait Setter {
-    fn write(&mut self, data_to_write: bool, channel: TermChannel) -> Result<(), String>;
+pub trait Setter { // T can be TermChannel or just plain u8 (easier for EnOcean)
+    fn write(&mut self, data_to_write: bool, channel: ChannelInput) -> Result<(), String>;
 }
 
 pub enum KBusTerminalGender {
@@ -76,11 +82,15 @@ pub struct KBusSubDevice {
 }
 
 impl Getter for KBusSubDevice {
-    fn read(&self, channel: TermChannel) -> Result<ElectricalObservable, String> {
-        let channel: usize = channel as usize;
+    fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String> {
+        let channel: usize = match channel {
+            ChannelInput::Channel(tc) => tc as usize - 1, // TermChannel starts at 1
+            ChannelInput::Index(idx) => idx as usize, // Index starts at 0
+        };
+
         let values = self.tx_data.as_ref().unwrap().clone();
 
-        let readout = match values.get(channel - 1) {
+        let readout = match values.get(channel) {
             Some(bit) => bit,
             None => return Err(format!("Error reading channel {}: Index out of bounds", channel)),
         };
@@ -92,12 +102,16 @@ impl Getter for KBusSubDevice {
 }
 
 impl Setter for KBusSubDevice {
-    fn write(&mut self, data_to_write: bool, channel: TermChannel) -> Result<(), String> {
-        let channel: usize = channel as usize;
+    fn write(&mut self, data_to_write: bool, channel: ChannelInput) -> Result<(), String> {
+        let channel: usize = match channel {
+            ChannelInput::Channel(tc) => tc as usize - 1, // TermChannel starts at 1
+            ChannelInput::Index(idx) => idx as usize, // Index starts at 0
+        };
+    
         if channel > (self.tx_data.as_ref().unwrap().len() as usize) {
             return Err("Specified channel doesn't exist. Index out of bounds".into())
         }
-        self.tx_data.as_mut().unwrap().set(channel - 1, data_to_write);
+        self.tx_data.as_mut().unwrap().set(channel, data_to_write);
         Ok(())
     }
 }
@@ -118,8 +132,12 @@ pub struct DITerm {
 //     log::info!("Limit switch hit");
 // }
 impl Getter for DITerm {
-    fn read(&self, channel: TermChannel) -> Result<ElectricalObservable, String> {
-        let channel: usize = channel as usize;
+    fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String> {
+        let channel: usize = match channel {
+            ChannelInput::Channel(tc) => tc as usize,
+            ChannelInput::Index(idx) => idx as usize,
+        };
+
         let values = self.values.clone();
 
         let readout = match values.get(channel - 1) {
@@ -145,8 +163,12 @@ pub struct DOTerm {
 // let mut wr_guard = &mut *TERM_EL2889.write().expect("acquire EL3024 write lock");
 // wr_guard.write(true, TermChannel::Ch16).unwrap();
 impl Setter for DOTerm {
-    fn write(&mut self, data_to_write: bool, channel: TermChannel) -> Result<(), String> {
-        let channel: usize = channel as usize;
+    fn write(&mut self, data_to_write: bool, channel: ChannelInput) -> Result<(), String> {
+        let channel: usize = match channel {
+            ChannelInput::Channel(tc) => tc as usize,
+            ChannelInput::Index(idx) => idx as usize,
+        };
+
         if channel > (self.num_of_channels as usize) {
             return Err("Specified channel doesn't exist. Index out of bounds".into())
         }
@@ -236,8 +258,11 @@ impl AITerm4Ch {
 }
 
 impl Getter for AITerm4Ch {
-    fn read(&self, channel: TermChannel) -> Result<ElectricalObservable, String> {
-        let channel: u8 = channel as u8;
+    fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String> {
+        let channel: usize = match channel {
+            ChannelInput::Channel(tc) => tc as usize,
+            ChannelInput::Index(idx) => idx as usize,
+        };
 
         let raw_int: BitVec::<u8, Lsb0> =
             match channel {

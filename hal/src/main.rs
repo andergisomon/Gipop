@@ -106,10 +106,12 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
         { // use fn write() implemented by Setter trait
             let wr_guard = &mut *TERM_EL2889.write().expect("acquire EL3024 write lock");
-            wr_guard.write(true, TermChannel::Ch16).unwrap();
+            wr_guard.write(true, ChannelInput::Channel(TermChannel::Ch16)).unwrap();
 
-            // let wr_guard = &mut *TERM_KL6581.write().expect("acquire KL6581 write lock");
-            // wr_guard.write(true, TermChannel::Ch2).unwrap(); // CB.1
+
+            let wr_guard = &mut *TERM_KL6581.write().expect("acquire KL6581 write lock");
+            wr_guard.write(true, ChannelInput::Index(1)).unwrap(); // CB.1
+
         }
 
         // Physical Input Terminal --> Program Code Input Terminal Object
@@ -128,8 +130,8 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
             if subdevice.name() == "BK1120" {
                 // View only KL6581 portion of the input process image (bytes 2-13)
-                // bruh. indexing is by bit in here, not by byte. this is wrong
-                // kl6581_input_handler(&*TERM_KL6581, &input_bits[2..14]);
+                // indexing is by bit in here, not by byte
+                kl6581_input_handler(&*TERM_KL6581, &input_bits[16..112]);
             }
         }
 
@@ -143,11 +145,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             }
             if subdevice.name() == "BK1120" {
                 // View only KL6581 portion of the output process image (bytes 2-13)
-                // bruh. indexing is by bit in here, not by byte. this is wrong
-                // kl6581_output_handler(&mut output_bits[64..72], &*TERM_KL6581);
-                // let kl6581_outputs = &mut output_bits[2..14];
-                let cb = &mut output_bits[16..24];
-                cb.set(1, true);
+                // indexing is by bit in here, not by byte.
+                kl6581_output_handler(&mut output_bits[16..112], &*TERM_KL6581);
+
+                // let cb = &mut output_bits[16..24];
+                // cb.set(1, true);
 
                 let kl2889 = &mut output_bits[112..128]; // this works
                 kl2889.fill(true);
@@ -156,7 +158,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
         { // use fn read() implemented by Getter trait
             let read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
-            if read_guard.read(TermChannel::Ch11).unwrap() == ElectricalObservable::Simple(1) {
+            if read_guard.read(ChannelInput::Channel(TermChannel::Ch11)).unwrap() == ElectricalObservable::Simple(1) {
                 log::info!("Limit switch hit");
             }
         }
