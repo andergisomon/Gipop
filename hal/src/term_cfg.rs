@@ -62,6 +62,8 @@ pub enum KBusTerminalGender {
 }
 
 // TODO: Create constructor
+// maybe this object shouldnt store data owned by subdevice, instead this object should only store information about the terminal
+// data stored by K bus subdevices should just use the objects we already defined; i.e., DOTerm, DITerm, etc.
 pub struct KBusSubDevice {
     // name: u8, // for intelligent terminals, name is the 4-digit decimal in 'KLXXXX'
     pub intelligent: bool, // intelligent or simple terminal? 0 -> intelligent, 1 -> simple
