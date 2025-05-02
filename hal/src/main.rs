@@ -15,6 +15,7 @@ use bitvec::prelude::*;
 use anyhow::Result;
 mod term_cfg; // Terminal configuration
 mod io_defs; // IO definitions
+mod enocean_driver; // EnOcean State Machine implementation
 use env_logger::Env;
 use crate::io_defs::*;
 use crate::term_cfg::*;
@@ -157,17 +158,14 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
         { // use fn read() implemented by Getter trait
             let rd_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
-            if rd_guard.read(ChannelInput::Channel(TermChannel::Ch11)).unwrap() == ElectricalObservable::Simple(1) {
+            if rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch11))).unwrap() == ElectricalObservable::Simple(1) {
                 log::info!("(EL1889) Limit switch hit");
             }
 
             let rd_guard = &*TERM_KL1889.read().expect("Acquire TERM_KL1889 read guard");
-            if rd_guard.read(ChannelInput::Channel(TermChannel::Ch7)).unwrap() == ElectricalObservable::Simple(1) {
+            if rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch7))).unwrap() == ElectricalObservable::Simple(1) {
                 log::info!("(KL1889) Limit switch hit");
             }
-
-            let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
-            log::info!("(EL3024) Channel 1 statuses: {:?}", rd_guard.check(ChannelInput::Channel(TermChannel::Ch1)));
 
         }
 
@@ -180,8 +178,24 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             
             if value != 0 {
                 log::info!(
-                    "DB3 bytes: {:08b}",
+                    "DB3 bytes direct: {:08b}",
                     value
+                );
+            }
+        }
+
+        {
+            let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
+
+            let reading = rd_guard.read(None).unwrap();
+            let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
+            let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
+
+            let subslice = bits[6*8..56].load::<u8>();
+            if subslice != 0 {
+                log::info!(
+                    "DB3 bytes through Getter: {:08b}",
+                    subslice
                 );
             }
         }
@@ -192,12 +206,12 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             let peek_bits = peek_input.view_bits::<Lsb0>();
             let subslice = &peek_bits[0..7];
 
-            log::info!(
-                "\nUnderrange bit: {} \nOverrange: bit: {}\nError bit: {}",
-                subslice[0],
-                subslice[1],
-                subslice[6]
-            );
+            // log::info!(
+            //     "\nUnderrange bit: {} \nOverrange: bit: {}\nError bit: {}",
+            //     subslice[0],
+            //     subslice[1],
+            //     subslice[6]
+            // );
         }
 
     }

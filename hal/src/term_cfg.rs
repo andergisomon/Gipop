@@ -1,6 +1,5 @@
 use bitvec::prelude::*;
 use enum_iterator::Sequence;
-use signal_hook::low_level::channel;
 use std::ops::Deref;
 
 #[repr(u8)]
@@ -22,6 +21,34 @@ pub enum ElectricalObservable {
     Voltage(f32),
     Current(f32),
     Simple(u8), // Boolean values
+    Smart(BitVec<u8, Lsb0>), // For intelligent digital terminals
+}
+
+impl ElectricalObservable { // there has to be a better way, will refactor later
+    pub fn pick_voltage(&self) -> Option<f32> {
+        match self {
+            ElectricalObservable::Voltage(v) => Some(*v),
+            _ => None
+        }
+    }
+    pub fn pick_current(&self) -> Option<f32> {
+        match self {
+            ElectricalObservable::Current(i) => Some(*i),
+            _ => None
+        }
+    }
+    pub fn pick_simple(&self) -> Option<u8> {
+        match self {
+            ElectricalObservable::Simple(val) => Some(*val),
+            _ => None
+        }
+    }
+    pub fn pick_smart(&self) -> Option<BitVec<u8, Lsb0>> {
+        match self {
+            ElectricalObservable::Smart(val) => Some(val.clone()),
+            _ => None
+        }
+    }
 }
 
 pub enum InputRange {
@@ -45,11 +72,11 @@ pub const KL6581_IMG_LEN_BITS: u8 = 12*2*8; // 24 bytes total, 12 each for Input
 pub const EL3024_IMG_LEN_BITS: u8 = 16*8; // 16 bytes total, for each channel value is 2 bytes and status is 2 bytes
 pub const EL3024_NUM_CHANNELS: u8 = 4;
 
-pub trait Getter { // T can be TermChannel or just plain u8 (easier for EnOcean)
-    fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String>;
+pub trait Getter { // channel should be passed as None for Enby terms
+    fn read(&self, channel: Option<ChannelInput>) -> Result<ElectricalObservable, String>;
 }
 
-pub trait Setter { // T can be TermChannel or just plain u8 (easier for EnOcean)
+pub trait Setter {
     fn write(&mut self, data_to_write: bool, channel: ChannelInput) -> Result<(), String>;
 }
 
@@ -75,14 +102,21 @@ pub struct KBusSubDevice {
     pub rx_data: Option<BitVec<u8, Lsb0>>, // Input data for Simple Terminals
 }
 
-impl Getter for KBusSubDevice {
-    fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String> {
+impl Getter for KBusSubDevice { // this method is buggy for KL6581
+    // For Enby terminals the inputs and outputs are concatenated in this order (Lsb) as a single bitvec: [rx_data, tx_data]
+    // it's then cast to u32. for reading Enby terminals, channel should be passed as None
+    fn read(&self, channel: Option<ChannelInput>) -> Result<ElectricalObservable, String> {
         let channel: usize = match channel {
-            ChannelInput::Channel(tc) => tc as usize - 1, // TermChannel starts at 1
-            ChannelInput::Index(idx) => idx as usize, // Index starts at 0
+            Some(ChannelInput::Channel(tc)) => tc as usize - 1, // TermChannel starts at 1
+            Some(ChannelInput::Index(idx)) => idx as usize, // Index starts at 0
+            None => 0,
         };
-
-        let mut values: BitVec<u8> = BitVec::<u8, Lsb0>::repeat(false, 16);
+    
+        let mut values: BitVec<u8> = match self.gender {
+            KBusTerminalGender::Input | KBusTerminalGender::Output => BitVec::<u8, Lsb0>::repeat(false, 16),
+            KBusTerminalGender::Enby if channel == 0 => BitVec::<u8, Lsb0>::repeat(false, 32*8),
+            _ => return Err(format!("Must pass channel input param as None for Enby terms"))
+        };
 
         if self.gender == KBusTerminalGender::Input {
             values = self.rx_data.as_ref().unwrap().clone();
@@ -91,17 +125,22 @@ impl Getter for KBusSubDevice {
             values = self.tx_data.as_ref().unwrap().clone();
         }
         if self.gender == KBusTerminalGender::Enby {
-            return Err(format!("Terminal has both Input/Output. Getter trait read() not yet supported"));
+            values = self.rx_data.as_ref().unwrap().clone();
+            values.extend(self.tx_data.as_ref().unwrap().clone());
         }
 
-        let readout = match values.get(channel) {
-            Some(bit) => bit,
-            None => return Err(format!("Error reading channel {}: Index out of bounds", channel)),
-        };
-
-        let readout_cast = readout.deref().clone() as u8;
-
-        Ok(ElectricalObservable::Simple(readout_cast))
+        if self.gender == KBusTerminalGender::Input || self.gender == KBusTerminalGender::Output {
+            let readout = match values.get(channel) {
+                Some(bit) => bit,
+                None => return Err(format!("Error reading channel {}: Index out of bounds", channel)),
+            };
+            let readout_cast = readout.deref().clone() as u8;
+            Ok(ElectricalObservable::Simple(readout_cast))
+        }
+        else {
+            let readout = values;
+            Ok(ElectricalObservable::Smart(readout))
+        }
     }
 }
 
@@ -136,10 +175,11 @@ pub struct DITerm {
 //     log::info!("Limit switch hit");
 // }
 impl Getter for DITerm {
-    fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String> {
+    fn read(&self, channel: Option<ChannelInput>) -> Result<ElectricalObservable, String> {
         let channel: usize = match channel {
-            ChannelInput::Channel(tc) => tc as usize,
-            ChannelInput::Index(idx) => idx as usize,
+            Some(ChannelInput::Channel(tc)) => tc as usize,
+            Some(ChannelInput::Index(idx)) => idx as usize,
+            None => return Err(format!("Can only pass None for Enby terms"))
         };
 
         let values = self.values.clone();
@@ -263,10 +303,11 @@ impl AITerm4Ch {
 }
 
 impl Getter for AITerm4Ch {
-    fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String> {
+    fn read(&self, channel: Option<ChannelInput>) -> Result<ElectricalObservable, String> {
         let channel: usize = match channel {
-            ChannelInput::Channel(tc) => tc as usize,
-            ChannelInput::Index(idx) => idx as usize + 1,
+            Some(ChannelInput::Channel(tc)) => tc as usize,
+            Some(ChannelInput::Index(idx)) => idx as usize + 1,
+            None => return Err(format!("Can only pass None for Enby terms"))
         };
 
         let raw_int: BitVec::<u8, Lsb0> =
