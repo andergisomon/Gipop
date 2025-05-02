@@ -102,9 +102,9 @@ pub struct KBusSubDevice {
     pub rx_data: Option<BitVec<u8, Lsb0>>, // Input data for Simple Terminals
 }
 
-impl Getter for KBusSubDevice { // this method is buggy for KL6581
+impl Getter for KBusSubDevice {
     // For Enby terminals the inputs and outputs are concatenated in this order (Lsb) as a single bitvec: [rx_data, tx_data]
-    // it's then cast to u32. for reading Enby terminals, channel should be passed as None
+    // for reading Enby terminals, channel should be passed as None
     fn read(&self, channel: Option<ChannelInput>) -> Result<ElectricalObservable, String> {
         let channel: usize = match channel {
             Some(ChannelInput::Channel(tc)) => tc as usize - 1, // TermChannel starts at 1
