@@ -1,8 +1,10 @@
 use bitvec::prelude::*;
+use enum_iterator::Sequence;
+use signal_hook::low_level::channel;
 use std::ops::Deref;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Sequence)]
 pub enum TermChannel { // Channels are always physically labeled starting from 1
     Ch1 = 1, Ch2,  Ch3,  Ch4,
     Ch5,     Ch6,  Ch7,  Ch8,
@@ -41,6 +43,7 @@ pub const EL2889_IMG_LEN_BITS: u8 = 2*8;
 pub const KL2889_IMG_LEN_BITS: u8 = 2*8;
 pub const KL6581_IMG_LEN_BITS: u8 = 12*2*8; // 24 bytes total, 12 each for Input/Output
 pub const EL3024_IMG_LEN_BITS: u8 = 16*8; // 16 bytes total, for each channel value is 2 bytes and status is 2 bytes
+pub const EL3024_NUM_CHANNELS: u8 = 4;
 
 pub trait Getter { // T can be TermChannel or just plain u8 (easier for EnOcean)
     fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String>;
@@ -48,6 +51,10 @@ pub trait Getter { // T can be TermChannel or just plain u8 (easier for EnOcean)
 
 pub trait Setter { // T can be TermChannel or just plain u8 (easier for EnOcean)
     fn write(&mut self, data_to_write: bool, channel: ChannelInput) -> Result<(), String>;
+}
+
+pub trait Checker { // this is a trait not shared by simple terminals w/o status bits
+    fn check(&self, channel: ChannelInput) -> Result<BitVec::<u8, Lsb0>, String>; // Returns all non-value bits
 }
 
 #[derive(PartialEq)]
@@ -82,6 +89,9 @@ impl Getter for KBusSubDevice {
         }
         if self.gender == KBusTerminalGender::Output {
             values = self.tx_data.as_ref().unwrap().clone();
+        }
+        if self.gender == KBusTerminalGender::Enby {
+            return Err(format!("Terminal has both Input/Output. Getter trait read() not yet supported"));
         }
 
         let readout = match values.get(channel) {
@@ -207,6 +217,7 @@ impl Analog4ChStatuses {
     }
 }
 
+#[derive(Clone)]
 pub struct El30xxStatuses {
     pub txpdo_toggle: bool,
     pub txpdo_state: bool,
@@ -255,7 +266,7 @@ impl Getter for AITerm4Ch {
     fn read(&self, channel: ChannelInput) -> Result<ElectricalObservable, String> {
         let channel: usize = match channel {
             ChannelInput::Channel(tc) => tc as usize,
-            ChannelInput::Index(idx) => idx as usize,
+            ChannelInput::Index(idx) => idx as usize + 1,
         };
 
         let raw_int: BitVec::<u8, Lsb0> =
@@ -274,5 +285,43 @@ impl Getter for AITerm4Ch {
             unreachable!("Voltage signal AITerm detected. This is not yet implemented")
         }
         // Don't have access to any EL AI terminal that takes in voltage right now
+    }
+}
+
+impl Checker for AITerm4Ch {
+    fn check(&self, channel: ChannelInput) -> Result<BitVec::<u8, Lsb0>, String> {
+        let channel: usize = match channel {
+            ChannelInput::Channel(tc) => tc as usize,
+            ChannelInput::Index(idx) => idx as usize + 1,
+        };
+        
+        let ch_status = match channel {
+            1 => self.ch_statuses.ch1.clone(),
+            2 => self.ch_statuses.ch2.clone(),
+            3 => self.ch_statuses.ch3.clone(),
+            4 => self.ch_statuses.ch4.clone(),
+            _ => return Err("Invalid channel. Can only specify Channels 1-4.".into())
+        };
+
+        let mut bits = BitVec::<u8, Lsb0>::new();
+
+        // these are bools
+        bits.push(ch_status.txpdo_toggle);
+        bits.push(ch_status.txpdo_state);
+        bits.push(ch_status.err);
+
+        // push first Lsb 2 bits from limit2
+        bits.push((ch_status.limit2 & 0b01) != 0);
+        bits.push((ch_status.limit2 & 0b10) != 0);
+
+        // push first Lsb 2 bits from limit1
+        bits.push((ch_status.limit1 & 0b01) != 0);
+        bits.push((ch_status.limit1 & 0b10) != 0);
+
+        // remaining bools
+        bits.push(ch_status.overrange);
+        bits.push(ch_status.underrange);
+
+        Ok(bits)
     }
 }

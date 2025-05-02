@@ -78,7 +78,7 @@ pub static TERM_EL3024: LazyLock<Arc<RwLock<AITerm4Ch>>> = LazyLock::new(|| {
 
 pub fn el3024_handler(dst: &Arc<RwLock<AITerm4Ch>>, bits: &BitSlice<u8, Lsb0>, channel: TermChannel) {
     let channel: u8 = channel as u8;
-    let bits: &BitSlice<u8, Lsb0> = &bits[32*(channel as usize -1)..(32*channel as usize)];
+    let bits: &BitSlice<u8, Lsb0> = &bits[32*(channel as usize - 1)..(32*channel as usize)];
     let mut rw_guard = dst.write().expect("Acquire TERM_EL3024 read/write guard");
 
     match channel { // will reimplement using bitmasking later; should be way neater

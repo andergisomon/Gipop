@@ -20,4 +20,5 @@ log = "0.4.27"
 bitvec = "1.0.1"
 anyhow = "1.0.98"
 async-executor = "1.13.1"
+enum-iterator = "2.1.0"
 

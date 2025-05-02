@@ -18,6 +18,7 @@ mod io_defs; // IO definitions
 use env_logger::Env;
 use crate::io_defs::*;
 use crate::term_cfg::*;
+use enum_iterator::all;
 
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
@@ -124,8 +125,10 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             }
 
             if subdevice.name() == "EL3024" {
-                el3024_handler(&*TERM_EL3024, input_bits, TermChannel::Ch1);
-                el3024_handler(&*TERM_EL3024, input_bits, TermChannel::Ch3);
+                for channel in all::<TermChannel>() {
+                    if channel as u8 > EL3024_NUM_CHANNELS { break; }
+                    el3024_handler(&*TERM_EL3024, input_bits, channel);
+                }
             }
 
             if subdevice.name() == "BK1120" {
@@ -162,6 +165,10 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             if rd_guard.read(ChannelInput::Channel(TermChannel::Ch7)).unwrap() == ElectricalObservable::Simple(1) {
                 log::info!("(KL1889) Limit switch hit");
             }
+
+            let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
+            log::info!("(EL3024) Channel 1 statuses: {:?}", rd_guard.check(ChannelInput::Channel(TermChannel::Ch1)));
+
         }
 
         {
@@ -177,6 +184,20 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                     value
                 );
             }
+        }
+
+        {
+            let peek_el3024 = group.subdevice(&maindevice, 3).expect("No EL3024 found as 3rd subdevice to 1st EK1100");
+            let peek_input = &peek_el3024.inputs_raw()[0..16]; // Ch1 inputs_raw is by bit
+            let peek_bits = peek_input.view_bits::<Lsb0>();
+            let subslice = &peek_bits[0..7];
+
+            log::info!(
+                "\nUnderrange bit: {} \nOverrange: bit: {}\nError bit: {}",
+                subslice[0],
+                subslice[1],
+                subslice[6]
+            );
         }
 
     }
