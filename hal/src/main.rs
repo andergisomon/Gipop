@@ -211,7 +211,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             //     subslice[0],
             //     subslice[1],
             //     subslice[6]
-            // );
+            // );   
         }
 
     }
