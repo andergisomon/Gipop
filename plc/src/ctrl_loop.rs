@@ -151,13 +151,20 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 log::info!("(KL1889) Limit switch hit");
             }
 
+            let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_KL1889 read guard");
+            let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+            let current = reading.pick_current().unwrap();
+            log::info!("Current Channel 1: {}", current);
+            let rh = ((current * 493.0)/1000.0 + 0.97) * 10.0; // 0.97V offset because I have no idea how else to work with this hardware setup
+            log::info!("%RH: {}", rh);
+
+            smol::Timer::after(Duration::from_millis(50)).await;
         }
 
         { // use fn check() implemented by Checker trait
             let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
             let channel_status = rd_guard.check(ChannelInput::Channel(TermChannel::Ch1)).unwrap();
-            log::info!("EL3024 Ch1 Status: {}", channel_status.as_bitslice());
-
+            // log::info!("EL3024 Ch1 Status: {}", channel_status.as_bitslice());
         }
 
         {

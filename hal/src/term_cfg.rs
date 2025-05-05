@@ -1,5 +1,6 @@
 use bitvec::prelude::*;
 use enum_iterator::Sequence;
+use signal_hook::iterator::exfiltrator::raw;
 use std::ops::Deref;
 
 #[repr(u8)]
@@ -320,7 +321,9 @@ impl Getter for AITerm4Ch {
             };
 
         if self.v_or_i == VoltageOrCurrent::Current {
-            return Ok(ElectricalObservable::Current((raw_int.load::<u16>() as f32 / 32767.0) * 10.0))
+            let t = raw_int.load::<u16>() as f32 / 30518.0;
+            let i = 4.0*(1.0-t) + 20.0*t;
+            return Ok(ElectricalObservable::Current(i))
         }
         else {
             unreachable!("Voltage signal AITerm detected. This is not yet implemented")
