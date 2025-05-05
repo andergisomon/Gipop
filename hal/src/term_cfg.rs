@@ -1,6 +1,5 @@
 use bitvec::prelude::*;
 use enum_iterator::Sequence;
-use signal_hook::iterator::exfiltrator::raw;
 use std::ops::Deref;
 
 #[repr(u8)]

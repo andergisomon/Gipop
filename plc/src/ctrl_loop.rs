@@ -8,9 +8,12 @@ use std::{
 };
 use bitvec::prelude::*;
 use anyhow::Result;
+use enum_iterator::all;
+
+// For getting read/write locks to terminal objects in PLC memory
 use hal::io_defs::*;
 use hal::term_cfg::*;
-use enum_iterator::all;
+use crate::logic::*; // Business logic execution; Calls to methods to accomplish business logic
 
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
@@ -76,6 +79,8 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     let shutdown = Arc::new(AtomicBool::new(false)); // Handling Ctrl+C
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");    
 
+    
+
     // Enter the primary loop
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -85,20 +90,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
         group.tx_rx(&maindevice).await.expect("TX/RX");
 
-        { // use fn write() implemented by Setter trait
-            let wr_guard = &mut *TERM_EL2889.write().expect("acquire EL3024 write lock");
-            wr_guard.write(true, ChannelInput::Channel(TermChannel::Ch16)).unwrap();
-
-            
-            let wr_guard = &mut *TERM_KL2889.write().expect("acquire KL2889 write lock");
-            for idx in 0..KL2889_IMG_LEN_BITS { // All 16 bits of KL2889
-                wr_guard.write(true, ChannelInput::Index(idx)).unwrap();
-            }
-
-            let wr_guard = &mut *TERM_KL6581.write().expect("acquire KL6581 write lock");
-            wr_guard.write(true, ChannelInput::Index(1)).unwrap(); // CB.1
-
-        }
+        plc_execute_logic().await;
 
         // Physical Input Terminal --> Program Code Input Terminal Object
         for subdevice in group.iter(&maindevice) {
@@ -154,8 +146,8 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_KL1889 read guard");
             let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
             let current = reading.pick_current().unwrap();
-            log::info!("Current Channel 1: {}", current);
-            let rh = ((current * 493.0)/1000.0 + 0.97) * 10.0; // 0.97V offset because I have no idea how else to work with this hardware setup
+            // log::info!("Current Channel 1: {}", current);
+            let rh = ((current * 493.0)/1000.0 + 0.96) * 10.0; // 0.96-0.97V offset because I have no idea how else to work with this hardware setup
             log::info!("%RH: {}", rh);
 
             smol::Timer::after(Duration::from_millis(50)).await;
