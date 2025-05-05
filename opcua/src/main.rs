@@ -18,6 +18,7 @@ use opcua::server::node_manager::memory::{
 use opcua::server::{ServerBuilder, SubscriptionCache};
 use opcua::types::{BuildInfo, DataValue, DateTime, NodeId, UAString};
 
+
 #[tokio::main]
 async fn main() {
     // This enables logging via env_logger & log crate macros. If you don't need logging or want

@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bytemuck = "1.23.0"
 chrono = "0.4.40"
 env_logger = "0.11.8"
 log = "0.4.27"
+memmap2 = "0.9.5"
+bytemuck = {version = "1.23.0", features = ["derive"]}
 tokio = "1.44.2"
 
 [dependencies.async-opcua]

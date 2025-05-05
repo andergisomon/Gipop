@@ -1,20 +1,15 @@
 use ethercrab::{
-    MainDevice, MainDeviceConfig, PduStorage, Timeouts, error::Error, std::ethercat_now, RetryBehaviour
-};
-use smol::{
-    Task, // lock::RwLock
+    MainDevice, MainDeviceConfig, PduStorage, Timeouts, std::ethercat_now, RetryBehaviour
 };
 use async_executor::*;
 use std::{
-    sync::{
-        Arc, atomic::{AtomicBool, Ordering}, RwLock, LazyLock
-    },
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
     time::Duration,
 };
 use bitvec::prelude::*;
 use anyhow::Result;
-use crate::io_defs::*;
-use crate::term_cfg::*;
+use hal::io_defs::*;
+use hal::term_cfg::*;
 use enum_iterator::all;
 
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
@@ -158,6 +153,13 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
         }
 
+        { // use fn check() implemented by Checker trait
+            let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
+            let channel_status = rd_guard.check(ChannelInput::Channel(TermChannel::Ch1)).unwrap();
+            log::info!("EL3024 Ch1 Status: {}", channel_status.as_bitslice());
+
+        }
+
         {
             let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
             let peek_input = peek_kl6581.inputs_raw()[8]; // DB3
@@ -187,20 +189,6 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                     subslice
                 );
             }
-        }
-
-        {
-            let peek_el3024 = group.subdevice(&maindevice, 3).expect("No EL3024 found as 3rd subdevice to 1st EK1100");
-            let peek_input = &peek_el3024.inputs_raw()[0..16]; // Ch1 inputs_raw is by bit
-            let peek_bits = peek_input.view_bits::<Lsb0>();
-            let subslice = &peek_bits[0..7];
-
-            // log::info!(
-            //     "\nUnderrange bit: {} \nOverrange: bit: {}\nError bit: {}",
-            //     subslice[0],
-            //     subslice[1],
-            //     subslice[6]
-            // );   
         }
 
     }
