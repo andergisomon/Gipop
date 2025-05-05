@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["hal", "plc", "opcua"]
+members = ["hal", "plc"]
+exclude = ["opcua"]
 
 [package]
 name = "gipop"

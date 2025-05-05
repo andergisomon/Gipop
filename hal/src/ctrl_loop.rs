@@ -96,7 +96,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
             
             let wr_guard = &mut *TERM_KL2889.write().expect("acquire KL2889 write lock");
-            for idx in 0..16 { // All 16 bits of KL2889
+            for idx in 0..KL2889_IMG_LEN_BITS { // All 16 bits of KL2889
                 wr_guard.write(true, ChannelInput::Index(idx)).unwrap();
             }
 
