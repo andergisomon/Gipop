@@ -1,13 +1,12 @@
 // OPCUA for Rust
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2017-2024 Adam Lock
+// Modified 2025 Ander Jiloh
 
-//! This is a simple server for OPC UA. Our sample creates a server with the default settings
-//! adds some variables to the address space and the listeners for connections. It also has
-//! a timer that updates those variables so anything monitoring variables sees the values changing.
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use std::{fs::OpenOptions, path::Path};
 
 use log::warn;
 use opcua::server::address_space::Variable;
@@ -17,22 +16,54 @@ use opcua::server::node_manager::memory::{
 };
 use opcua::server::{ServerBuilder, SubscriptionCache};
 use opcua::types::{BuildInfo, DataValue, DateTime, NodeId, UAString};
-
+mod shared;
+use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 
 #[tokio::main]
 async fn main() {
-    // This enables logging via env_logger & log crate macros. If you don't need logging or want
-    // to implement your own, omit this line.
     env_logger::init();
+    // Open shared memory file. NOTE: The file is created by plc/main.rs
+    // PLC must be running
+    let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+    let mut mmap = map_shared_memory(&file);
+
+    let shared_data = Arc::new(Mutex::new(SharedData {
+        temperature: 0.0,
+        humidity: 0.0,
+        status: 0,
+    }));
+
+    // spawn polling task
+    let shared_data_clone = shared_data.clone();
+    tokio::spawn(async move {
+        loop {
+            {
+                let mut local = shared_data_clone.lock().unwrap();
+                let data = read_data(&mmap);
+                local.temperature = data.temperature;
+                local.humidity = data.humidity;
+                local.status = data.status;
+
+                // push changes to status back to shmem
+                // let mut out_data = data;
+                // out_data.status = local.status;
+                // write_data(&mut mmap, out_data);
+                log::info!(
+                    "[OPC UA sync] temp: {}, humd: {}, stat: {}",
+                    local.temperature, local.humidity, local.status
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
 
     // Create an OPC UA server with sample configuration and default node set
-
     let (server, handle) = ServerBuilder::new()
         .with_config_from("../server.conf")
         .build_info(BuildInfo {
             product_uri: "https://github.com/freeopcua/async-opcua".into(),
-            manufacturer_name: "Rust OPC-UA".into(),
-            product_name: "Rust OPC-UA sample server".into(),
+            manufacturer_name: "Pongipop Tohog Oundar Gipop".into(),
+            product_name: "Gipop OPC-UA Server".into(),
             // Here you could use something to inject the build time, version, number at compile time
             software_version: "0.1.0".into(),
             build_number: "1".into(),
@@ -43,7 +74,7 @@ async fn main() {
             // node ownership, so make sure to use a different value here than the application URI
             // in server.conf, as that is the namespace used by the diagnostic node manager.
             NamespaceMetadata {
-                namespace_uri: "urn:SimpleServer".to_owned(),
+                namespace_uri: "urn:GipopPlcServer".to_owned(),
                 ..Default::default()
             },
             "simple",
@@ -56,10 +87,11 @@ async fn main() {
         .node_managers()
         .get_of_type::<SimpleNodeManager>()
         .unwrap();
-    let ns = handle.get_namespace_index("urn:SimpleServer").unwrap();
+    let ns = handle.get_namespace_index("urn:GipopPlcServer").unwrap();
 
     // Add some variables of our own
-    add_example_variables(ns, node_manager, handle.subscriptions().clone());
+    // add_example_variables(ns, node_manager, handle.subscriptions().clone());
+    add_plc_variables(ns, node_manager, handle.subscriptions().clone());
 
     // If you don't register a ctrl-c handler, the server will close without
     // informing clients.
@@ -77,108 +109,69 @@ async fn main() {
     server.run().await.unwrap();
 }
 
-/// Creates some sample variables, and some push / pull examples that update them
-fn add_example_variables(
+fn add_plc_variables(
     ns: u16,
     manager: Arc<InMemoryNodeManager<SimpleNodeManagerImpl>>,
     subscriptions: Arc<SubscriptionCache>,
 ) {
-    // These will be the node ids of the new variables
-    let v1_node = NodeId::new(ns, "v1");
-    let v2_node = NodeId::new(ns, "v2");
-    let v3_node = NodeId::new(ns, "v3");
-    let v4_node = NodeId::new(ns, "v4");
-    let v5_node = NodeId::new(ns, "v5");
+    let temp_node = NodeId::new(ns, "temperature");
+    let humd_node = NodeId::new(ns, "humidity");
+    let stat_node = NodeId::new(ns, "status");
 
     let address_space = manager.address_space();
 
-    // The address space is guarded so obtain a lock to change it
     {
         let mut address_space = address_space.write();
 
         // Create a sample folder under objects folder
-        let sample_folder_id = NodeId::new(ns, "folder");
+        let plc_folder_id = NodeId::new(ns, "plc_tags");
         address_space.add_folder(
-            &sample_folder_id,
-            "Sample",
-            "Sample",
-            &NodeId::objects_folder_id(),
+            &plc_folder_id,
+            "PlcTags", // browse_name
+            "PlcTags", // display_name
+            &NodeId::objects_folder_id(), // parent_node_id
         );
 
         // Add some variables to our sample folder. Values will be overwritten by the timer
         let _ = address_space.add_variables(
             vec![
-                Variable::new(&v1_node, "v1", "v1", 0_i32),
-                Variable::new(&v2_node, "v2", "v2", false),
-                Variable::new(&v3_node, "v3", "v3", UAString::from("")),
-                Variable::new(&v4_node, "v4", "v4", 0f64),
-                Variable::new(&v5_node, "v5", "v5", "Static Value"),
+                Variable::new(&temp_node, "temperature", "temperature", 0_f32),
+                Variable::new(&humd_node, "humidity", "humidity", 0_f32),
+                Variable::new(&stat_node, "status", "status", 0_u32),
             ],
-            &sample_folder_id,
+            &plc_folder_id,
         );
     }
 
-    // Depending on your choice of node manager, you can use different methods to provide the value of a node.
-    // The simple node manager lets you set dynamic getters:
     {
-        let counter = AtomicI32::new(0);
         manager
             .inner()
-            .add_read_callback(v3_node.clone(), move |_, _, _| {
-                Ok(DataValue::new_now(UAString::from(format!(
-                    "Hello World times {}",
-                    counter.fetch_add(1, Ordering::Relaxed)
-                ))))
-            });
-
-        let start_time = Instant::now();
-        manager
-            .inner()
-            .add_read_callback(v4_node.clone(), move |_, _, _| {
-                let elapsed = (Instant::now() - start_time).as_millis();
-                let moment = (elapsed % 10_000) as f64 / 10_000.0;
+            .add_read_callback(humd_node.clone(), move |_, _, _| {
                 Ok(DataValue::new_now(
-                    (2.0 * std::f64::consts::PI * moment).sin(),
+                    fetch_humd_from_shmem()// call fetcher function
+                ))
+            });
+        manager
+            .inner()
+            .add_read_callback(stat_node.clone(), move |_, _, _| {
+                Ok(DataValue::new_now(
+                    fetch_status_from_shmem()// call fetcher function
                 ))
             });
     }
 
-    // Alternatively, you can set the value in the node manager on a timer.
-    // This is typically a better choice if updates are relatively rare, and you always know when
-    // an update occurs. Fundamentally, the server is event-driven. When using a getter like above,
-    // the node manager will sample the value if a user subscribes to it. When publishing a value like below,
-    // clients will only be notified when a change actually happens, but we will need to store each new value.
+}
 
-    // Typically, you will use a getter or a custom node manager for dynamic values, and direct modification for
-    // properties or other less-commonly changing values.
-    {
-        // Store a counter and a flag in a tuple
-        let counter = AtomicI32::new(0);
-        let flag = AtomicBool::new(false);
-        tokio::task::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(300));
-            loop {
-                interval.tick().await;
+fn fetch_humd_from_shmem() -> f32 {
+    let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+    let mut mmap = map_shared_memory(&file);
+    let data = read_data(&mmap);
+    return data.humidity
+}
 
-                manager
-                    .set_values(
-                        &subscriptions,
-                        [
-                            (
-                                &v1_node,
-                                None,
-                                DataValue::new_now(counter.fetch_add(1, Ordering::Relaxed)),
-                            ),
-                            (
-                                &v2_node,
-                                None,
-                                DataValue::new_now(flag.fetch_xor(true, Ordering::Relaxed)),
-                            ),
-                        ]
-                        .into_iter(),
-                    )
-                    .unwrap();
-            }
-        });
-    }
+fn fetch_status_from_shmem() -> u32 {
+    let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+    let mut mmap = map_shared_memory(&file);
+    let data = read_data(&mmap);
+    return data.status
 }

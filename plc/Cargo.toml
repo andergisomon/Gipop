@@ -26,3 +26,4 @@ async-executor = "1.13.1"
 enum-iterator = "2.1.0"
 memmap2 = "0.9.5"
 bytemuck = {version = "1.23.0", features = ["derive"]}
+async-io = "2.4.0"

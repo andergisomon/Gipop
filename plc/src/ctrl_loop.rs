@@ -1,10 +1,11 @@
 use ethercrab::{
     MainDevice, MainDeviceConfig, PduStorage, Timeouts, std::ethercat_now, RetryBehaviour
 };
-use async_executor::*;
+use async_io::Timer;
 use std::{
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
     time::Duration,
+    fs::OpenOptions
 };
 use bitvec::prelude::*;
 use anyhow::Result;
@@ -14,6 +15,7 @@ use enum_iterator::all;
 use hal::io_defs::*;
 use hal::term_cfg::*;
 use crate::logic::*; // Business logic execution; Calls to methods to accomplish business logic
+use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
@@ -79,6 +81,46 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     let shutdown = Arc::new(AtomicBool::new(false)); // Handling Ctrl+C
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");    
 
+    // fields of plc_data should be populated by values from terminal objects in PLC memory
+    let plc_data = Arc::new(Mutex::new(SharedData {
+        temperature: 0.0,
+        humidity: 0.0,
+        status: 0,
+    }));
+
+    let plc_data_for_thread = Arc::clone(&plc_data);    
+
+    std::thread::Builder::new()
+    .name("PlcOpcUaServerShmThread".to_owned())
+    .spawn(move || {
+        let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+        let mut mmap = map_shared_memory(&file);
+        let runtime = smol::LocalExecutor::new();
+        smol::block_on(runtime.run(async move {
+            loop {
+                {
+                    let mut data = read_data(&mmap);
+                    let plc_data = plc_data_for_thread.lock().unwrap();
+
+                    data.temperature = plc_data.temperature;
+
+                    let rd_guard = &*TERM_KL1889.read().expect("Acquire TERM_KL1889 read guard");
+                    data.status = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch7))).unwrap().pick_simple().unwrap() as u32;
+
+                    let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
+                    let ch1_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+                    let current = ch1_reading.pick_current().unwrap();
+                    let rh = ((current * 493.0)/1000.0 + 0.96) * 10.0;
+                    data.humidity = rh;
+
+                    write_data(&mut mmap, data);
+                }
+
+                Timer::after(Duration::from_millis(100)).await;
+            }
+        }));
+    })
+    .expect("build shared mem thread");
     
 
     // Enter the primary loop
@@ -143,7 +185,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 log::info!("(KL1889) Limit switch hit");
             }
 
-            let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_KL1889 read guard");
+            let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
             let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
             let current = reading.pick_current().unwrap();
             // log::info!("Current Channel 1: {}", current);

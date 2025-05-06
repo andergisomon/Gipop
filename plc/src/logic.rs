@@ -33,7 +33,7 @@ pub async fn plc_execute_logic() {
             write_all_channel_el2889(false);
         }
 
-        write_cb1(!read_sb1());
+        write_cb1(!read_sb1()); // Very important. Tells KL6581 we've fetched the packet.
     }
     else {
         // log::info!("CB.1 == SB.1");

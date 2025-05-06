@@ -3,7 +3,7 @@ pub mod ctrl_loop;
 mod shared;
 pub mod logic;
 use shared::{SharedData, SHM_PATH};
-use std::{fs::{OpenOptions}, path::Path,};
+use std::{fs::OpenOptions, path::Path,};
 
 fn main() { // opcua setup + config + shutdown should be done here
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
