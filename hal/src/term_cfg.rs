@@ -138,8 +138,11 @@ impl Getter for KBusSubDevice {
             Ok(ElectricalObservable::Simple(readout_cast))
         }
         else {
-            let readout = values;
-            Ok(ElectricalObservable::Smart(readout))
+            if self.gender == KBusTerminalGender::Enby {
+                let readout = values;
+                Ok(ElectricalObservable::Smart(readout))
+            }
+            else {unreachable!()} // there are only three genders
         }
     }
 }

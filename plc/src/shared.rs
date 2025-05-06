@@ -1,3 +1,4 @@
+// this file should be a carbon copy in both ./opcua/ and ./plc/
 use bytemuck::{Pod, Zeroable};
 use std::{mem, fs::File};
 use memmap2::MmapMut;
