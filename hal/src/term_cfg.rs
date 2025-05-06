@@ -177,14 +177,14 @@ pub struct DITerm {
 impl Getter for DITerm {
     fn read(&self, channel: Option<ChannelInput>) -> Result<ElectricalObservable, String> {
         let channel: usize = match channel {
-            Some(ChannelInput::Channel(tc)) => tc as usize,
+            Some(ChannelInput::Channel(tc)) => (tc as usize) - 1,
             Some(ChannelInput::Index(idx)) => idx as usize,
             None => return Err(format!("Can only pass None for Enby terms"))
         };
 
         let values = self.values.clone();
 
-        let readout = match values.get(channel - 1) {
+        let readout = match values.get(channel) {
             Some(bit) => bit,
             None => return Err(format!("Error reading channel {}: Index out of bounds", channel)),
         };
@@ -209,14 +209,14 @@ pub struct DOTerm {
 impl Setter for DOTerm {
     fn write(&mut self, data_to_write: bool, channel: ChannelInput) -> Result<(), String> {
         let channel: usize = match channel {
-            ChannelInput::Channel(tc) => tc as usize,
+            ChannelInput::Channel(tc) => (tc as usize) - 1,
             ChannelInput::Index(idx) => idx as usize,
         };
 
         if channel > (self.num_of_channels as usize) {
             return Err("Specified channel doesn't exist. Index out of bounds".into())
         }
-        self.values.set(channel - 1, data_to_write);
+        self.values.set(channel, data_to_write);
         Ok(())
     }
 }
