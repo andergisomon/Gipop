@@ -13,7 +13,7 @@ pub struct SharedData {
 }
 
 pub fn map_shared_memory(file: &File) -> memmap2::MmapMut {
-    unsafe { MmapMut::map_mut(file).expect("Failed to mmap") }
+    unsafe { MmapMut::map_mut(file).expect("Failed to mmap") } // unsafe because of potential UB if file is modified
 }
 
 pub fn read_data(mmap: &memmap2::MmapMut) -> SharedData {

@@ -148,9 +148,9 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             let current = reading.pick_current().unwrap();
             // log::info!("Current Channel 1: {}", current);
             let rh = ((current * 493.0)/1000.0 + 0.96) * 10.0; // 0.96-0.97V offset because I have no idea how else to work with this hardware setup
-            log::info!("%RH: {}", rh);
+            // log::info!("%RH: {}", rh);
 
-            smol::Timer::after(Duration::from_millis(50)).await;
+            // smol::Timer::after(Duration::from_millis(50)).await;
         }
 
         { // use fn check() implemented by Checker trait
@@ -174,21 +174,21 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             }
         }
 
-        {
-            let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
+        // {
+        //     let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
 
-            let reading = rd_guard.read(None).unwrap();
-            let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
-            let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
+        //     let reading = rd_guard.read(None).unwrap();
+        //     let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
+        //     let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
 
-            let subslice = bits[6*8..56].load::<u8>();
-            if subslice != 0 {
-                log::info!(
-                    "DB3 bytes through Getter: {:08b}",
-                    subslice
-                );
-            }
-        }
+        //     let subslice = bits[6*8..56].load::<u8>();
+        //     if subslice != 0 {
+        //         log::info!(
+        //             "DB3 bytes through Getter: {:08b}",
+        //             subslice
+        //         );
+        //     }
+        // }
 
     }
 
