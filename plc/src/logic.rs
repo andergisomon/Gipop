@@ -67,12 +67,24 @@ fn read_cb1() -> bool {
     return bits[1];
 }
 
-fn read_db3() -> u8 {
+pub fn read_db3() -> u8 {
     let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
     let reading = rd_guard.read(None).unwrap();
     let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
     let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
     return bits[6*8..56].load::<u8>();
+}
+
+pub fn read_area_1_lights() -> u8 {
+    let rd_guard = &*TERM_KL2889.read().expect("Acquire TERM_KL2889 read guard");
+    let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+    return reading.pick_simple().unwrap();
+}
+
+pub fn read_area_2_lights() -> u8 {
+    let rd_guard = &*TERM_EL2889.read().expect("Acquire TERM_EL2889 read guard");
+    let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+    return reading.pick_simple().unwrap();
 }
 
 fn set_ch16_el2889() {

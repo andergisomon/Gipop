@@ -11,6 +11,8 @@ pub struct SharedData {
     pub temperature: f32,
     pub humidity: f32,
     pub status: u32,
+    pub area_1_lights: u32,
+    pub area_2_lights: u32,
 }
 
 pub fn map_shared_memory(file: &File) -> memmap2::MmapMut {

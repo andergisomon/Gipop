@@ -224,6 +224,27 @@ impl Setter for DOTerm {
     }
 }
 
+impl Getter for DOTerm {
+    fn read(&self, channel: Option<ChannelInput>) -> Result<ElectricalObservable, String> {
+        let channel: usize = match channel {
+            Some(ChannelInput::Channel(tc)) => (tc as usize) - 1,
+            Some(ChannelInput::Index(idx)) => idx as usize,
+            None => return Err(format!("Can only pass None for Enby terms"))
+        };
+
+        let values = self.values.clone();
+
+        let readout = match values.get(channel) {
+            Some(bit) => bit,
+            None => return Err(format!("Error reading channel {}: Index out of bounds", channel)),
+        };
+
+        let readout_cast = readout.deref().clone() as u8;
+
+        Ok(ElectricalObservable::Simple(readout_cast))
+    }
+}
+
 pub struct Analog4ChValues {
     pub ch1: BitVec<u8, Lsb0>,
     pub ch2: BitVec<u8, Lsb0>,

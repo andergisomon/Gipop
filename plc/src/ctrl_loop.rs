@@ -86,6 +86,8 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         temperature: 0.0,
         humidity: 0.0,
         status: 0,
+        area_1_lights: 0,
+        area_2_lights: 0
     }));
 
     let plc_data_for_thread = Arc::clone(&plc_data);    
@@ -112,6 +114,9 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                     let current = ch1_reading.pick_current().unwrap();
                     let rh = ((current * 493.0)/1000.0 + 0.96) * 10.0;
                     data.humidity = rh;
+
+                    data.area_1_lights = read_area_1_lights() as u32;
+                    data.area_2_lights = read_area_2_lights() as u32;
 
                     write_data(&mut mmap, data);
                 }

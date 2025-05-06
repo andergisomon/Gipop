@@ -31,6 +31,8 @@ async fn main() {
         temperature: 0.0,
         humidity: 0.0,
         status: 0,
+        area_1_lights: 0,
+        area_2_lights: 0,
     }));
 
     // spawn polling task
@@ -43,14 +45,16 @@ async fn main() {
                 local.temperature = data.temperature;
                 local.humidity = data.humidity;
                 local.status = data.status;
+                local.area_1_lights = data.area_1_lights;
+                local.area_2_lights = data.area_2_lights;
 
                 // push changes to status back to shmem
                 // let mut out_data = data;
                 // out_data.status = local.status;
                 // write_data(&mut mmap, out_data);
                 log::info!(
-                    "[OPC UA sync] temp: {}, humd: {}, stat: {}",
-                    local.temperature, local.humidity, local.status
+                    "[OPC UA sync] temp: {}, humd: {}, stat: {}, area1: {}, area2: {}",
+                    local.temperature, local.humidity, local.status, local.area_1_lights, local.area_2_lights
                 );
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -117,6 +121,8 @@ fn add_plc_variables(
     let temp_node = NodeId::new(ns, "temperature");
     let humd_node = NodeId::new(ns, "humidity");
     let stat_node = NodeId::new(ns, "status");
+    let ar1_lights_node = NodeId::new(ns, "area 1 lights");
+    let ar2_lights_node = NodeId::new(ns, "area 2 lights");
 
     let address_space = manager.address_space();
 
@@ -138,6 +144,8 @@ fn add_plc_variables(
                 Variable::new(&temp_node, "temperature", "temperature", 0_f32),
                 Variable::new(&humd_node, "humidity", "humidity", 0_f32),
                 Variable::new(&stat_node, "status", "status", 0_u32),
+                Variable::new(&ar1_lights_node, "area 1 lights", "area 1 lights", 0_u32),
+                Variable::new(&ar2_lights_node, "area 2 lights", "area 2 lights", 0_u32),
             ],
             &plc_folder_id,
         );
@@ -150,14 +158,28 @@ fn add_plc_variables(
                 Ok(DataValue::new_now(
                     fetch_humd_from_shmem()// call fetcher function
                 ))
-            });
+        });
         manager
             .inner()
             .add_read_callback(stat_node.clone(), move |_, _, _| {
                 Ok(DataValue::new_now(
                     fetch_status_from_shmem()// call fetcher function
                 ))
-            });
+        });
+        manager
+        .inner()
+        .add_read_callback(ar1_lights_node.clone(), move |_, _, _| {
+            Ok(DataValue::new_now(
+                fetch_ar1_lights_from_shmem() // call fetcher function
+            ))
+        });
+        manager
+        .inner()
+        .add_read_callback(ar2_lights_node.clone(), move |_, _, _| {
+            Ok(DataValue::new_now(
+                fetch_ar2_lights_from_shmem() // call fetcher function
+            ))
+        });
     }
 
 }
@@ -174,4 +196,18 @@ fn fetch_status_from_shmem() -> u32 {
     let mut mmap = map_shared_memory(&file);
     let data = read_data(&mmap);
     return data.status
+}
+
+fn fetch_ar1_lights_from_shmem() -> u32 {
+    let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+    let mut mmap = map_shared_memory(&file);
+    let data = read_data(&mmap);
+    return data.area_1_lights
+}
+
+fn fetch_ar2_lights_from_shmem() -> u32 {
+    let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+    let mut mmap = map_shared_memory(&file);
+    let data = read_data(&mmap);
+    return data.area_2_lights
 }
