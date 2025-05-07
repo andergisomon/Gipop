@@ -9,13 +9,13 @@ use std::time::{Duration, Instant};
 use std::{fs::OpenOptions, path::Path};
 
 use log::warn;
-use opcua::server::address_space::Variable;
+use opcua::server::address_space::{Variable, VariableBuilder, AccessLevel};
 use opcua::server::diagnostics::NamespaceMetadata;
 use opcua::server::node_manager::memory::{
     simple_node_manager, InMemoryNodeManager, SimpleNodeManager, SimpleNodeManagerImpl,
 };
 use opcua::server::{ServerBuilder, SubscriptionCache};
-use opcua::types::{BuildInfo, DataValue, DateTime, NodeId, UAString};
+use opcua::types::{BuildInfo, DataValue, DateTime, NodeId, UAString, StatusCode, DataTypeId};
 mod shared;
 use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 
@@ -138,17 +138,28 @@ fn add_plc_variables(
             &NodeId::objects_folder_id(), // parent_node_id
         );
 
-        // Add some variables to our sample folder. Values will be overwritten by the timer
+        // Add some variables to our folder
+        let builder =
+            VariableBuilder::new(&ar1_lights_node, "area 1 lights", "area 1 lights")
+                .value(0_u32)
+                .data_type(DataTypeId::UInt32)
+                .historizing(false)
+                .access_level(AccessLevel::all())
+                .user_access_level(AccessLevel::all());
+        let ar1_lights_node_variable = builder.build();
+
         let _ = address_space.add_variables(
             vec![
                 Variable::new(&temp_node, "temperature", "temperature", 0_f32),
                 Variable::new(&humd_node, "humidity", "humidity", 0_f32),
                 Variable::new(&stat_node, "status", "status", 0_u32),
-                Variable::new(&ar1_lights_node, "area 1 lights", "area 1 lights", 0_u32),
+                // Variable::new(&ar1_lights_node, "area 1 lights", "area 1 lights", 0_u32),
+                ar1_lights_node_variable,
                 Variable::new(&ar2_lights_node, "area 2 lights", "area 2 lights", 0_u32),
             ],
             &plc_folder_id,
         );
+        
     }
 
     {
@@ -173,6 +184,15 @@ fn add_plc_variables(
                 fetch_ar1_lights_from_shmem() // call fetcher function
             ))
         });
+
+        // Client write callback
+        manager
+        .inner()
+        .add_write_callback(ar1_lights_node.clone(), move |_, _| {
+                log::info!("write callback on area 1 lights triggered!");
+                write_ar1_lights_to_shmem() // call writer function
+        });
+        
         manager
         .inner()
         .add_read_callback(ar2_lights_node.clone(), move |_, _, _| {
@@ -210,4 +230,9 @@ fn fetch_ar2_lights_from_shmem() -> u32 {
     let mut mmap = map_shared_memory(&file);
     let data = read_data(&mmap);
     return data.area_2_lights
+}
+
+fn write_ar1_lights_to_shmem() -> StatusCode {
+    // WIP
+    return StatusCode::Good
 }
