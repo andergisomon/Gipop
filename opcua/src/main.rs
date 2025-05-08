@@ -9,13 +9,13 @@ use std::time::{Duration, Instant};
 use std::{fs::OpenOptions, path::Path};
 
 use log::warn;
-use opcua::server::address_space::{Variable, VariableBuilder, AccessLevel};
+use opcua::server::address_space::{Variable, VariableBuilder, AccessLevel, NodeType};
 use opcua::server::diagnostics::NamespaceMetadata;
 use opcua::server::node_manager::memory::{
     simple_node_manager, InMemoryNodeManager, SimpleNodeManager, SimpleNodeManagerImpl,
 };
 use opcua::server::{ServerBuilder, SubscriptionCache};
-use opcua::types::{BuildInfo, DataValue, DateTime, NodeId, UAString, StatusCode, DataTypeId};
+use opcua::types::{BuildInfo, DataValue, DateTime, NodeId, UAString, StatusCode, DataTypeId, NumericRange, Variant, TimestampsToReturn};
 mod shared;
 use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 
@@ -147,7 +147,7 @@ fn add_plc_variables(
                 .access_level(AccessLevel::all())
                 .user_access_level(AccessLevel::all());
         let ar1_lights_node_variable = builder.build();
-
+        
         let _ = address_space.add_variables(
             vec![
                 Variable::new(&temp_node, "temperature", "temperature", 0_f32),
@@ -163,6 +163,61 @@ fn add_plc_variables(
     }
 
     {
+        let address_space = address_space.read(); // acquire read lock
+        let node_type = address_space.find_node(&ar1_lights_node).unwrap();
+
+        let ar1_lights_var_val = match node_type {
+            NodeType::Variable(ar1_lights_var) => {
+                Some(ar1_lights_var.value(
+                    TimestampsToReturn::Source,
+                    &NumericRange::None,
+                    &opcua::types::encoding::DataEncoding::Binary,
+                    1.0,
+                ))
+            },
+            _ => None,
+        };
+        
+        let val = ar1_lights_var_val.expect("Node was not a Variable");                
+
+        // Client write callback
+        let write_ar1_lights_to_shmem = move |val_from_client: DataValue, _range: &NumericRange| -> StatusCode {
+            log::info!("write_ar1_lights_to_shmem entered");
+        
+            let file = match OpenOptions::new().read(true).write(true).open(SHM_PATH) {
+                Ok(f) => f,
+                Err(e) => {
+                    log::error!("Failed to open shared memory file: {}", e);
+                    return StatusCode::Bad;
+                }
+            };
+        
+            log::info!("shmem file opened");
+            let mut mmap = map_shared_memory(&file);
+            let mut data = read_data(&mmap);
+            log::info!("read_data mmap success");
+
+            match val.clone().value {
+                Some(Variant::UInt32(n)) => {
+                    data.area_1_lights = n;
+                    write_data(&mut mmap, data);
+                    StatusCode::Good
+                }
+                other => {
+                    log::error!("Unexpected variant: {:?}", other);
+                    StatusCode::Bad
+                }
+            }
+            // return StatusCode::Good
+        };
+        // Client write callback
+        manager
+        .inner()
+        .add_write_callback(
+            ar1_lights_node.clone(),
+            write_ar1_lights_to_shmem
+        );
+
         manager
             .inner()
             .add_read_callback(humd_node.clone(), move |_, _, _| {
@@ -183,14 +238,6 @@ fn add_plc_variables(
             Ok(DataValue::new_now(
                 fetch_ar1_lights_from_shmem() // call fetcher function
             ))
-        });
-
-        // Client write callback
-        manager
-        .inner()
-        .add_write_callback(ar1_lights_node.clone(), move |_, _| {
-                log::info!("write callback on area 1 lights triggered!");
-                write_ar1_lights_to_shmem() // call writer function
         });
         
         manager
@@ -232,7 +279,21 @@ fn fetch_ar2_lights_from_shmem() -> u32 {
     return data.area_2_lights
 }
 
-fn write_ar1_lights_to_shmem() -> StatusCode {
-    // WIP
-    return StatusCode::Good
-}
+// // WIP
+// fn write_ar1_lights_to_shmem(val_from_client: DataValue, _range: NumericRange) -> StatusCode {
+//     log::info!("write_ar1_lights_to_shmem entered");
+//     let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+//     let mut mmap = map_shared_memory(&file);
+//     let mut data = read_data(&mmap);
+//     let val_from_client = val_from_client.value.unwrap();
+
+//     data.area_1_lights = match val_from_client {
+//         Variant::UInt32(n) => n,
+//         _ => {
+//             // handle error case or panic
+//             panic!("Expected Variant::UInt32, got {:?}", val_from_client);
+//         }
+//     };
+//     write_data(&mut mmap, data);
+//     return StatusCode::Good
+// }

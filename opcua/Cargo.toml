@@ -11,7 +11,9 @@ memmap2 = "0.9.5"
 bytemuck = {version = "1.23.0", features = ["derive"]}
 tokio = "1.44.2"
 
-[dependencies.async-opcua]
-version = "0.15.1"
-features = ["server"]
-default-features = false
+# [dependencies.async-opcua]
+# version = "0.15.1"
+# features = ["server"]
+# default-features = false
+
+async-opcua = { path = "/home/ander/SIIP_project/opcua/async-opcua/async-opcua", features = ["server"], default-features = false}
