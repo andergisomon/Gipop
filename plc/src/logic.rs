@@ -22,12 +22,12 @@ pub async fn plc_execute_logic() {
     let cmd = INCOMING_HMI_CMD.lock().unwrap();
 
     if cmd.area_1_lights_hmi_cmd == 2 {
-        log::info!("Area 1 Lights Command On");
+        // log::info!("Area 1 Lights Command On");
         write_all_channel_kl2889(true);
     }
 
     if cmd.area_1_lights_hmi_cmd == 1 {
-        log::info!("Area 1 Lights Command Off");
+        // log::info!("Area 1 Lights Command Off");
         write_all_channel_kl2889(false);
     }
 
@@ -38,12 +38,12 @@ pub async fn plc_execute_logic() {
         //     log::info!("DB3 contents: {}", read_db3());
         // }
 
-        if (read_db3() & 0b11110000) == 0b01010000 || (cmd.area_1_lights_hmi_cmd == 2) {
+        if (read_db3() & 0b11110000) == 0b01010000 {
             log::info!("Rocker B, I pos. pressed");
             write_all_channel_kl2889(true);
         }
 
-        if (read_db3() & 0b11110000) == 0b01110000 || (cmd.area_1_lights_hmi_cmd == 1) {
+        if (read_db3() & 0b11110000) == 0b01110000 {
             log::info!("Rocker B, O pos. pressed");
             write_all_channel_kl2889(false);
         }
