@@ -2,23 +2,38 @@ use bitvec::prelude::*;
 // For getting read/write locks to terminal objects in PLC memory
 use hal::io_defs::*;
 use hal::term_cfg::*;
+use std::sync::{LazyLock, Mutex};
 
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
 
+pub struct IncomingHmiCmd {
+    pub area_1_lights_hmi_cmd: u32,
+}
+
+impl IncomingHmiCmd {
+    pub fn new() -> Self {
+        IncomingHmiCmd { area_1_lights_hmi_cmd: 0_u32 }
+    }
+}
+
+pub static INCOMING_HMI_CMD: LazyLock<Mutex<IncomingHmiCmd>> = LazyLock::new(|| Mutex::new(IncomingHmiCmd::new()));
+
 pub async fn plc_execute_logic() {
     // smol::Timer::after(std::time::Duration::from_millis(30)).await;
+    let cmd = INCOMING_HMI_CMD.lock().unwrap();
+
     if read_cb1() != read_sb1() {
         // log::info!("CB.1 <> SB.1");
         // log::info!("CB.1 : {}, SB.1 : {}", read_cb1(), read_sb1());
         // if read_db3() != 0 {
         //     log::info!("DB3 contents: {}", read_db3());
         // }
-        if (read_db3() & 0b11110000) == 0b01010000 {
+        if (read_db3() & 0b11110000) == 0b01010000 || (cmd.area_1_lights_hmi_cmd == 2) {
             log::info!("Rocker B, I pos. pressed");
             write_all_channel_kl2889(true);
         }
 
-        if (read_db3() & 0b11110000) == 0b01110000 {
+        if (read_db3() & 0b11110000) == 0b01110000 || (cmd.area_1_lights_hmi_cmd == 1) {
             log::info!("Rocker B, O pos. pressed");
             write_all_channel_kl2889(false);
         }

@@ -13,6 +13,7 @@ pub struct SharedData {
     pub status: u32,
     pub area_1_lights: u32,
     pub area_2_lights: u32,
+    pub area_1_lights_hmi_cmd: u32, // incoming to PLC
 }
 
 pub fn map_shared_memory(file: &File) -> memmap2::MmapMut {

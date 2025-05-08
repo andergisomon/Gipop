@@ -81,13 +81,14 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     let shutdown = Arc::new(AtomicBool::new(false)); // Handling Ctrl+C
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");    
 
-    // fields of plc_data should be populated by values from terminal objects in PLC memory
+    // outgoing fields of plc_data should be populated by values from terminal objects in PLC memory
     let plc_data = Arc::new(Mutex::new(SharedData {
         temperature: 0.0,
         humidity: 0.0,
         status: 0,
         area_1_lights: 0,
-        area_2_lights: 0
+        area_2_lights: 0,
+        area_1_lights_hmi_cmd: 0, // incoming to PLC
     }));
 
     let plc_data_for_thread = Arc::clone(&plc_data);    
@@ -103,6 +104,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 {
                     let mut data = read_data(&mmap);
                     let plc_data = plc_data_for_thread.lock().unwrap();
+                    let mut cmd = INCOMING_HMI_CMD.lock().unwrap();
 
                     data.temperature = plc_data.temperature;
 
@@ -117,6 +119,8 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
                     data.area_1_lights = read_area_1_lights() as u32;
                     data.area_2_lights = read_area_2_lights() as u32;
+
+                    cmd.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd; // Copy HMI command from shared mem to local PLC state
 
                     write_data(&mut mmap, data);
                 }
