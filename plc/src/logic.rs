@@ -3,6 +3,8 @@ use bitvec::prelude::*;
 use hal::io_defs::*;
 use hal::term_cfg::*;
 use std::sync::{LazyLock, Mutex};
+use std::fs::OpenOptions;
+use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
 
@@ -19,24 +21,8 @@ impl IncomingHmiCmd {
 pub static INCOMING_HMI_CMD: LazyLock<Mutex<IncomingHmiCmd>> = LazyLock::new(|| Mutex::new(IncomingHmiCmd::new()));
 
 pub async fn plc_execute_logic() {
-    let cmd = INCOMING_HMI_CMD.lock().unwrap();
-
-    if cmd.area_1_lights_hmi_cmd == 2 {
-        // log::info!("Area 1 Lights Command On");
-        write_all_channel_kl2889(true);
-    }
-
-    if cmd.area_1_lights_hmi_cmd == 1 {
-        // log::info!("Area 1 Lights Command Off");
-        write_all_channel_kl2889(false);
-    }
 
     if read_cb1() != read_sb1() {
-        // log::info!("CB.1 <> SB.1");
-        // log::info!("CB.1 : {}, SB.1 : {}", read_cb1(), read_sb1());
-        // if read_db3() != 0 {
-        //     log::info!("DB3 contents: {}", read_db3());
-        // }
 
         if (read_db3() & 0b11110000) == 0b01010000 {
             log::info!("Rocker B, I pos. pressed");
@@ -64,8 +50,22 @@ pub async fn plc_execute_logic() {
         // log::info!("CB.1 == SB.1");
         if buffer_full() {
             log::info!("Buffer full");
-            write_cb1(!read_sb1());
+            write_cb1(!read_sb1()); // Very important. Tells KL6581 we've fetched the packet.
         }
+    }
+
+    let mut cmd = INCOMING_HMI_CMD.lock().unwrap();
+
+    if cmd.area_1_lights_hmi_cmd == 2 {
+        // log::info!("Area 1 Lights Command On");
+        write_all_channel_kl2889(true);
+        reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
+    }
+
+    if cmd.area_1_lights_hmi_cmd == 1 {
+        // log::info!("Area 1 Lights Command Off");
+        write_all_channel_kl2889(false);
+        reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
     }
 
 }
@@ -137,4 +137,12 @@ fn buffer_full() -> bool {
     let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
     let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
     return bits[(12*8)+2]; // SB.2
+}
+
+fn reset_hmi_cmd() {
+    let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+    let mut mmap = map_shared_memory(&file);
+    let mut data = read_data(&mmap);
+    data.area_1_lights_hmi_cmd = 0;
+    write_data(&mut mmap, data);
 }
