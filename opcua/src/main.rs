@@ -164,156 +164,43 @@ fn add_plc_variables(
         
     }
 
-    // fn write_ar1_lights_to_shmem(_val: DataValue, _range: &NumericRange) -> StatusCode {
-    //     let address_space = manager.address_space();
-    //     let address_space = address_space.read(); // acquire read lock
-    //     let node_type = address_space.find_node(&ar1_lights_hmi_cmd_node).unwrap();
-
-    //     let ar1_lights_hmi_cmd_var_val = match node_type {
-    //         NodeType::Variable(ar1_lights_hmi_cmd_var) => {
-    //             Some(ar1_lights_hmi_cmd_var.value(
-    //                 TimestampsToReturn::Both,
-    //                 &NumericRange::None,
-    //                 &opcua::types::encoding::DataEncoding::Binary,
-    //                 1.0,
-    //             ))
-    //         },
-    //         _ => None,
-    //     };
-
-    //     let val = ar1_lights_hmi_cmd_var_val.expect("node not a variable");
-
-    //     let file = match OpenOptions::new().read(true).write(true).open(SHM_PATH) {
-    //         Ok(f) => f,
-    //         Err(e) => {
-    //             log::error!("Failed to open shared memory file: {}", e);
-    //             return StatusCode::Bad;
-    //         }
-    //     };
-    
-    //     log::info!("shmem file opened");
-    //     let mut mmap = map_shared_memory(&file);
-    //     let mut data = read_data(&mmap);
-    //     log::info!("read_data mmap success");
-    
-    //     match val.value {
-    //         Some(Variant::UInt32(n)) => {
-    //             log::info!("SERVER READS VALUE: {}", n);
-    //             data.area_1_lights_hmi_cmd = n;
-    //             write_data(&mut mmap, data);
-    //             log::info!("mmap write_data executed");
-    //             StatusCode::Good
-    //         }
-    //         other => {
-    //             log::error!("Unexpected variant: {:?}", other);
-    //             StatusCode::Bad
-    //         }
-    //     }
-    // }
-
     {
-        let manager_ = manager.clone();
-        let ar1_lights_hmi_cmd_node_ = ar1_lights_hmi_cmd_node.clone();
-        let write_ar1_lights_to_shmem = move |_val: DataValue, _range: &NumericRange| {
-            let address_space = manager_.address_space();
-            let address_space = address_space.read(); // acquire read lock
-            let node_type = address_space.find_node(&ar1_lights_hmi_cmd_node_).unwrap();
-    
-            let ar1_lights_hmi_cmd_var_val = match node_type {
-                NodeType::Variable(ar1_lights_hmi_cmd_var) => {
-                    Some(ar1_lights_hmi_cmd_var.value(
-                        TimestampsToReturn::Both,
-                        &NumericRange::None,
-                        &opcua::types::encoding::DataEncoding::Binary,
-                        1.0,
-                    ))
-                },
-                _ => None,
-            };
-    
-            let val = ar1_lights_hmi_cmd_var_val.expect("node not a variable");
-    
-            let file = match OpenOptions::new().read(true).write(true).open(SHM_PATH) {
-                Ok(f) => f,
-                Err(e) => {
-                    log::error!("Failed to open shared memory file: {}", e);
-                    return StatusCode::Bad;
-                }
-            };
-        
-            log::info!("shmem file opened");
-            let mut mmap = map_shared_memory(&file);
-            let mut data = read_data(&mmap);
-            log::info!("read_data mmap success");
-        
-            match val.value {
-                Some(Variant::UInt32(n)) => {
-                    log::info!("SERVER READS VALUE: {}", n);
-                    data.area_1_lights_hmi_cmd = n;
-                    write_data(&mut mmap, data);
-                    log::info!("mmap write_data executed");
-                    StatusCode::Good
-                }
-                other => {
-                    log::error!("Unexpected variant: {:?}", other);
-                    StatusCode::Bad
-                }
-            }
-        };
-        // let address_space = address_space.read(); // acquire read lock
-        // let node_type = address_space.find_node(&ar1_lights_hmi_cmd_node).unwrap();
-
-        // let ar1_lights_hmi_cmd_var_val = match node_type {
-        //     NodeType::Variable(ar1_lights_hmi_cmd_var) => {
-        //         Some(ar1_lights_hmi_cmd_var.value(
-        //             TimestampsToReturn::Both,
-        //             &NumericRange::None,
-        //             &opcua::types::encoding::DataEncoding::Binary,
-        //             1.0,
-        //         ))
-        //     },
-        //     _ => None,
-        // };
-        
-        // let val = ar1_lights_hmi_cmd_var_val.expect("node not a variable");
-
         // Client write callback
-        manager
-        .inner()
-        .add_write_callback(
-            ar1_lights_hmi_cmd_node.clone(), move |_, _| {
-                write_ar1_lights_to_shmem(DataValue::new_now(255_u32), &NumericRange::None)
-            // write_ar1_lights_to_shmem(val.clone(), &NumericRange::None)
+        manager.inner().add_write_callback(
+            ar1_lights_hmi_cmd_node.clone(),
+            move |val: DataValue, _| {
+                write_ar1_lights_to_shmem(val, &NumericRange::None)
             }
         );
 
-        manager
-            .inner()
-            .add_read_callback(humd_node.clone(), move |_, _, _| {
+        manager.inner().add_read_callback(
+            humd_node.clone(),
+            move |_, _, _| {
                 Ok(DataValue::new_now(
                     fetch_humd_from_shmem()// call fetcher function
-                ))
+                )
+            )
         });
-        manager
-            .inner()
-            .add_read_callback(stat_node.clone(), move |_, _, _| {
-                Ok(DataValue::new_now(
+        manager.inner().add_read_callback(stat_node.clone(),
+        move |_, _, _| {
+            Ok(DataValue::new_now(
                     fetch_status_from_shmem()// call fetcher function
-                ))
+                )
+            )
         });
-        manager
-            .inner()
-            .add_read_callback(ar1_lights_node.clone(), move |_, _, _| {
-                Ok(DataValue::new_now(
+        manager.inner().add_read_callback(ar1_lights_node.clone(),
+        move |_, _, _| {
+            Ok(DataValue::new_now(
                     fetch_ar1_lights_from_shmem() // call fetcher function
-                ))
+                )
+            )
         });
-        manager
-            .inner()
-            .add_read_callback(ar2_lights_node.clone(), move |_, _, _| {
+        manager.inner().add_read_callback(ar2_lights_node.clone(),
+            move |_, _, _| {
                 Ok(DataValue::new_now(
                     fetch_ar2_lights_from_shmem() // call fetcher function
-                ))
+                )
+            )
         });
     }
 
@@ -347,32 +234,28 @@ fn fetch_ar2_lights_from_shmem() -> u32 {
     return data.area_2_lights
 }
 
-// fn write_ar1_lights_to_shmem(val: DataValue, _range: &NumericRange) -> StatusCode {
-    
-    // let file = match OpenOptions::new().read(true).write(true).open(SHM_PATH) {
-    //     Ok(f) => f,
-    //     Err(e) => {
-    //         log::error!("Failed to open shared memory file: {}", e);
-    //         return StatusCode::Bad;
-    //     }
-    // };
+fn write_ar1_lights_to_shmem(val: DataValue, _range: &NumericRange) -> StatusCode {
+    let file = match OpenOptions::new().read(true).write(true).open(SHM_PATH) {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("Failed to open shared memory file: {}", e);
+            return StatusCode::Bad;
+        }
+    };
 
-    // log::info!("shmem file opened");
-    // let mut mmap = map_shared_memory(&file);
-    // let mut data = read_data(&mmap);
-    // log::info!("read_data mmap success");
+    let mut mmap = map_shared_memory(&file);
+    let mut data = read_data(&mmap);
 
-    // match val.value {
-    //     Some(Variant::UInt32(n)) => {
-    //         log::info!("SERVER READS VALUE: {}", n);
-    //         data.area_1_lights_hmi_cmd = n;
-    //         write_data(&mut mmap, data);
-    //         log::info!("mmap write_data executed");
-    //         StatusCode::Good
-    //     }
-    //     other => {
-    //         log::error!("Unexpected variant: {:?}", other);
-    //         StatusCode::Bad
-    //     }
-    // }
-// }
+    match val.value {
+        Some(Variant::UInt32(n)) => {
+            log::info!("SERVER RECEIVED VALUE: {}", n);
+            data.area_1_lights_hmi_cmd = n;
+            write_data(&mut mmap, data);
+            StatusCode::Good
+        }
+        other => {
+            log::error!("Unexpected value type: {:?}", other);
+            StatusCode::Bad
+        }
+    }
+}

@@ -19,8 +19,17 @@ impl IncomingHmiCmd {
 pub static INCOMING_HMI_CMD: LazyLock<Mutex<IncomingHmiCmd>> = LazyLock::new(|| Mutex::new(IncomingHmiCmd::new()));
 
 pub async fn plc_execute_logic() {
-    // smol::Timer::after(std::time::Duration::from_millis(30)).await;
     let cmd = INCOMING_HMI_CMD.lock().unwrap();
+
+    if cmd.area_1_lights_hmi_cmd == 2 {
+        log::info!("Area 1 Lights Command On");
+        write_all_channel_kl2889(true);
+    }
+
+    if cmd.area_1_lights_hmi_cmd == 1 {
+        log::info!("Area 1 Lights Command Off");
+        write_all_channel_kl2889(false);
+    }
 
     if read_cb1() != read_sb1() {
         // log::info!("CB.1 <> SB.1");
@@ -28,6 +37,7 @@ pub async fn plc_execute_logic() {
         // if read_db3() != 0 {
         //     log::info!("DB3 contents: {}", read_db3());
         // }
+
         if (read_db3() & 0b11110000) == 0b01010000 || (cmd.area_1_lights_hmi_cmd == 2) {
             log::info!("Rocker B, I pos. pressed");
             write_all_channel_kl2889(true);
