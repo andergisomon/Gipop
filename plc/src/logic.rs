@@ -8,17 +8,42 @@ use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_da
 
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
 
-pub struct IncomingHmiCmd {
-    pub area_1_lights_hmi_cmd: u32,
+pub struct LocalPlcData {
+    pub temperature: f32,
+    pub humidity: f32,
+    pub status: u32,
+    pub area_1_lights: u32,
+    pub area_2_lights: u32,
+    pub area_1_lights_hmi_cmd: u32, // incoming to PLC
 }
 
-impl IncomingHmiCmd {
+impl LocalPlcData {
     pub fn new() -> Self {
-        IncomingHmiCmd { area_1_lights_hmi_cmd: 0_u32 }
+        LocalPlcData {
+            temperature: 0.0,
+            humidity: 0.0,
+            status: 0,
+            area_1_lights: 0,
+            area_2_lights: 0,
+            area_1_lights_hmi_cmd: 0
+        }
     }
 }
 
-pub static INCOMING_HMI_CMD: LazyLock<Mutex<IncomingHmiCmd>> = LazyLock::new(|| Mutex::new(IncomingHmiCmd::new()));
+
+// pub struct IncomingHmiCmd {
+//     pub area_1_lights_hmi_cmd: u32,
+// }
+
+// impl IncomingHmiCmd {
+//     pub fn new() -> Self {
+//         IncomingHmiCmd { area_1_lights_hmi_cmd: 0_u32 }
+//     }
+// }
+
+pub static LOCAL_PLC_DATA: LazyLock<Mutex<LocalPlcData>> = LazyLock::new(|| Mutex::new(LocalPlcData::new()));
+
+// pub static INCOMING_HMI_CMD: LazyLock<Mutex<IncomingHmiCmd>> = LazyLock::new(|| Mutex::new(IncomingHmiCmd::new()));
 
 pub async fn plc_execute_logic() {
 
@@ -54,7 +79,8 @@ pub async fn plc_execute_logic() {
         }
     }
 
-    let mut cmd = INCOMING_HMI_CMD.lock().unwrap();
+    // let mut cmd = INCOMING_HMI_CMD.lock().unwrap();
+    let cmd = LOCAL_PLC_DATA.lock().unwrap();
 
     if cmd.area_1_lights_hmi_cmd == 2 {
         // log::info!("Area 1 Lights Command On");
@@ -139,6 +165,8 @@ fn buffer_full() -> bool {
     return bits[(12*8)+2]; // SB.2
 }
 
+// Very important. Resets hmi cmd in shared mem so that the old value doesn't create conflict with
+// later EnOcean commands
 fn reset_hmi_cmd() {
     let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
     let mut mmap = map_shared_memory(&file);

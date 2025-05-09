@@ -174,6 +174,14 @@ fn add_plc_variables(
         );
 
         manager.inner().add_read_callback(
+            temp_node.clone(),
+            move |_, _, _| {
+                Ok(DataValue::new_now(
+                    fetch_temp_from_shmem() // call fetcher function
+                )
+            )
+        });
+        manager.inner().add_read_callback(
             humd_node.clone(),
             move |_, _, _| {
                 Ok(DataValue::new_now(
@@ -204,6 +212,13 @@ fn add_plc_variables(
         });
     }
 
+}
+
+fn fetch_temp_from_shmem() -> f32 {
+    let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+    let mut mmap = map_shared_memory(&file);
+    let data = read_data(&mmap);
+    return data.temperature
 }
 
 fn fetch_humd_from_shmem() -> f32 {

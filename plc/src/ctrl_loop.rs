@@ -81,18 +81,6 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     let shutdown = Arc::new(AtomicBool::new(false)); // Handling Ctrl+C
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");    
 
-    // outgoing fields of plc_data should be populated by values from terminal objects in PLC memory
-    let plc_data = Arc::new(Mutex::new(SharedData {
-        temperature: 0.0,
-        humidity: 0.0,
-        status: 0,
-        area_1_lights: 0,
-        area_2_lights: 0,
-        area_1_lights_hmi_cmd: 0, // incoming to PLC
-    }));
-
-    let plc_data_for_thread = Arc::clone(&plc_data);    
-
     std::thread::Builder::new()
     .name("PlcOpcUaServerShmThread".to_owned())
     .spawn(move || {
@@ -101,27 +89,38 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         let runtime = smol::LocalExecutor::new();
         smol::block_on(runtime.run(async move {
             loop {
-                {
+                { // TODO: abstract away into a function Fn(&mmap: &MmapMut, plc_data_for_thread: Arc<Mutex<SharedData>)
+                // the reason for making a duplicate is so that the logic loop can fetch from the plc_data: Arc<Mutex<SharedData>
+                // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
                     let mut data = read_data(&mmap);
-                    let plc_data = plc_data_for_thread.lock().unwrap();
-                    let mut cmd = INCOMING_HMI_CMD.lock().unwrap();
+                    let mut plc_data = LOCAL_PLC_DATA.lock().unwrap();
+                    // let mut cmd = INCOMING_HMI_CMD.lock().unwrap();
 
-                    data.temperature = plc_data.temperature;
+                    let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
+                    let ch2_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
+                    let current = ch2_reading.pick_current().unwrap();
+                    let temp = ((current * 493.0)/1000.0 + 1.228) * 5.0;
+                    plc_data.temperature = temp;
+                    data.temperature = temp;
+
+                    // let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
+                    let ch1_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+                    let current = ch1_reading.pick_current().unwrap();
+                    let rh = ((current * 493.0)/1000.0 + 0.96) * 10.0;
+                    plc_data.humidity = rh;
+                    data.humidity = rh;
 
                     let rd_guard = &*TERM_KL1889.read().expect("Acquire TERM_KL1889 read guard");
                     data.status = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch7))).unwrap().pick_simple().unwrap() as u32;
 
-                    let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
-                    let ch1_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
-                    let current = ch1_reading.pick_current().unwrap();
-                    let rh = ((current * 493.0)/1000.0 + 0.96) * 10.0;
-                    data.humidity = rh;
+                    plc_data.area_1_lights = read_area_1_lights() as u32;
+                    data.area_1_lights = plc_data.area_1_lights;
 
-                    data.area_1_lights = read_area_1_lights() as u32;
-                    data.area_2_lights = read_area_2_lights() as u32;
+                    plc_data.area_2_lights = read_area_2_lights() as u32;
+                    data.area_2_lights = plc_data.area_2_lights;
 
-                    cmd.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd; // Copy HMI command from shared mem to local PLC state
-
+                    // Incoming to PLC: HMI command from shmem to local PLC state
+                    plc_data.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
                     write_data(&mut mmap, data);
                 }
 
@@ -208,21 +207,6 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             let channel_status = rd_guard.check(ChannelInput::Channel(TermChannel::Ch1)).unwrap();
             // log::info!("EL3024 Ch1 Status: {}", channel_status.as_bitslice());
         }
-
-        // {
-        //     let peek_kl6581 = group.subdevice(&maindevice, 4).expect("No BK1120 found as final subdevice");
-        //     let peek_input = peek_kl6581.inputs_raw()[8]; // DB3
-        //     let peek_bits = peek_input.view_bits::<Lsb0>();
-        //     let subslice = &peek_bits[0..8];
-        //     let value: u8 = subslice.load::<u8>();
-            
-        //     if value != 0 {
-        //         log::info!(
-        //             "DB3 bytes direct: {:08b}",
-        //             value
-        //         );
-        //     }
-        // }
 
     }
 
