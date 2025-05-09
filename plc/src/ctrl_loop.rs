@@ -89,12 +89,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         let runtime = smol::LocalExecutor::new();
         smol::block_on(runtime.run(async move {
             loop {
-                { // TODO: abstract away into a function Fn(&mmap: &MmapMut, plc_data_for_thread: Arc<Mutex<SharedData>)
-                // the reason for making a duplicate is so that the logic loop can fetch from the plc_data: Arc<Mutex<SharedData>
+                { // TODO: abstract away into a function Fn(&mmap: &MmapMut) -> ()
+                // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
                 // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
                     let mut data = read_data(&mmap);
                     let mut plc_data = LOCAL_PLC_DATA.lock().unwrap();
-                    // let mut cmd = INCOMING_HMI_CMD.lock().unwrap();
 
                     let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
                     let ch2_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
@@ -103,7 +102,6 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                     plc_data.temperature = temp;
                     data.temperature = temp;
 
-                    // let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
                     let ch1_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
                     let current = ch1_reading.pick_current().unwrap();
                     let rh = ((current * 493.0)/1000.0 + 1.05) * 10.0;
