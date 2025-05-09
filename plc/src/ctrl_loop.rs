@@ -99,14 +99,14 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                     let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
                     let ch2_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
                     let current = ch2_reading.pick_current().unwrap();
-                    let temp = ((current * 493.0)/1000.0 + 1.228) * 5.0;
+                    let temp = ((current * 493.0)/1000.0 + 1.08) * 5.0;
                     plc_data.temperature = temp;
                     data.temperature = temp;
 
                     // let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
                     let ch1_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
                     let current = ch1_reading.pick_current().unwrap();
-                    let rh = ((current * 493.0)/1000.0 + 0.96) * 10.0;
+                    let rh = ((current * 493.0)/1000.0 + 1.05) * 10.0;
                     plc_data.humidity = rh;
                     data.humidity = rh;
 

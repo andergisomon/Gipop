@@ -50,10 +50,6 @@ async fn main() {
                 local.area_2_lights = data.area_2_lights;
                 local.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
 
-                // push changes to status back to shmem
-                // let mut out_data = data;
-                // out_data.status = local.status;
-                // write_data(&mut mmap, out_data);
                 log::info!(
                     "[OPC UA sync] temp: {}, humd: {}, stat: {}, area1: {}, area2: {}, area1_cmd: {}",
                     local.temperature, local.humidity, local.status, local.area_1_lights, local.area_2_lights, local.area_1_lights_hmi_cmd

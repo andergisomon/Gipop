@@ -30,20 +30,7 @@ impl LocalPlcData {
     }
 }
 
-
-// pub struct IncomingHmiCmd {
-//     pub area_1_lights_hmi_cmd: u32,
-// }
-
-// impl IncomingHmiCmd {
-//     pub fn new() -> Self {
-//         IncomingHmiCmd { area_1_lights_hmi_cmd: 0_u32 }
-//     }
-// }
-
 pub static LOCAL_PLC_DATA: LazyLock<Mutex<LocalPlcData>> = LazyLock::new(|| Mutex::new(LocalPlcData::new()));
-
-// pub static INCOMING_HMI_CMD: LazyLock<Mutex<IncomingHmiCmd>> = LazyLock::new(|| Mutex::new(IncomingHmiCmd::new()));
 
 pub async fn plc_execute_logic() {
 
@@ -79,7 +66,6 @@ pub async fn plc_execute_logic() {
         }
     }
 
-    // let mut cmd = INCOMING_HMI_CMD.lock().unwrap();
     let cmd = LOCAL_PLC_DATA.lock().unwrap();
 
     if cmd.area_1_lights_hmi_cmd == 2 {
