@@ -2,6 +2,7 @@ use ethercrab::{
     MainDevice, MainDeviceConfig, PduStorage, Timeouts, std::ethercat_now, RetryBehaviour
 };
 use async_io::Timer;
+use memmap2::{Mmap, MmapMut};
 use std::{
     sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
     time::Duration,
@@ -84,42 +85,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     std::thread::Builder::new()
     .name("PlcOpcUaServerShmThread".to_owned())
     .spawn(move || {
-        let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
-        let mut mmap = map_shared_memory(&file);
         let runtime = smol::LocalExecutor::new();
         smol::block_on(runtime.run(async move {
             loop {
-                { // TODO: abstract away into a function Fn(&mmap: &MmapMut) -> ()
-                // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
-                // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
-                    let mut data = read_data(&mmap);
-                    let mut plc_data = LOCAL_PLC_DATA.lock().unwrap();
-
-                    let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
-                    let ch2_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
-                    let current = ch2_reading.pick_current().unwrap();
-                    let temp = ((current * 493.0)/1000.0 + 1.08) * 5.0;
-                    plc_data.temperature = temp;
-                    data.temperature = temp;
-
-                    let ch1_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
-                    let current = ch1_reading.pick_current().unwrap();
-                    let rh = ((current * 493.0)/1000.0 + 1.05) * 10.0;
-                    plc_data.humidity = rh;
-                    data.humidity = rh;
-
-                    let rd_guard = &*TERM_KL1889.read().expect("Acquire TERM_KL1889 read guard");
-                    data.status = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch7))).unwrap().pick_simple().unwrap() as u32;
-
-                    plc_data.area_1_lights = read_area_1_lights() as u32;
-                    data.area_1_lights = plc_data.area_1_lights;
-
-                    plc_data.area_2_lights = read_area_2_lights() as u32;
-                    data.area_2_lights = plc_data.area_2_lights;
-
-                    // Incoming to PLC: HMI command from shmem to local PLC state
-                    plc_data.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
-                    write_data(&mut mmap, data);
+                {
+                    opcua_shm();
                 }
 
                 Timer::after(Duration::from_millis(100)).await;
@@ -138,6 +108,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
         group.tx_rx(&maindevice).await.expect("TX/RX");
 
+        // PLC logic entry point. Cycle time watchdog should be here (TODO)
         plc_execute_logic().await;
 
         // Physical Input Terminal --> Program Code Input Terminal Object
@@ -180,32 +151,6 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
             }
         }
 
-        { // use fn read() implemented by Getter trait
-            let rd_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
-            if rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch11))).unwrap() == ElectricalObservable::Simple(1) {
-                log::info!("(EL1889) Limit switch hit");
-            }
-
-            let rd_guard = &*TERM_KL1889.read().expect("Acquire TERM_KL1889 read guard");
-            if rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch7))).unwrap() == ElectricalObservable::Simple(1) {
-                log::info!("(KL1889) Limit switch hit");
-            }
-
-            let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
-            let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
-            let current = reading.pick_current().unwrap();
-            // log::info!("Current Channel 1: {}", current);
-            let rh = ((current * 493.0)/1000.0 + 0.96) * 10.0; // 0.96-0.97V offset because I have no idea how else to work with this hardware setup
-            // log::info!("%RH: {}", rh);
-            // smol::Timer::after(Duration::from_millis(50)).await;
-        }
-
-        { // use fn check() implemented by Checker trait
-            let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard");
-            let channel_status = rd_guard.check(ChannelInput::Channel(TermChannel::Ch1)).unwrap();
-            // log::info!("EL3024 Ch1 Status: {}", channel_status.as_bitslice());
-        }
-
     }
 
     let group = group.into_safe_op(&maindevice).await.expect("OP -> SAFE-OP");
@@ -218,4 +163,41 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     log::info!("PRE-OP -> INIT, shutdown complete");
 
     Ok(())
+}
+
+fn opcua_shm() {
+    let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
+
+    let mut mmap = map_shared_memory(&file);
+    let mut data = read_data(&mmap);
+
+    // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
+    // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
+    let mut plc_data = LOCAL_PLC_DATA.lock().unwrap();
+
+    let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
+    let ch2_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
+    let current = ch2_reading.pick_current().unwrap();
+    let temp = ((current * 493.0)/1000.0 + 1.044) * 5.0; // offset can be calculated delta / 5.0
+    plc_data.temperature = temp;
+    data.temperature = temp;
+
+    let ch1_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+    let current = ch1_reading.pick_current().unwrap();
+    let rh = ((current * 493.0)/1000.0 + 1.018) * 10.0; // offset can be calculated delta / 10.0
+    plc_data.humidity = rh;
+    data.humidity = rh;
+
+    let rd_guard = &*TERM_KL1889.read().expect("Acquire TERM_KL1889 read guard");
+    data.status = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch7))).unwrap().pick_simple().unwrap() as u32;
+
+    plc_data.area_1_lights = read_area_1_lights() as u32;
+    data.area_1_lights = plc_data.area_1_lights;
+
+    plc_data.area_2_lights = read_area_2_lights() as u32;
+    data.area_2_lights = plc_data.area_2_lights;
+
+    // Incoming to PLC: HMI command from shmem to local PLC state
+    plc_data.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
+    write_data(&mut mmap, data);
 }

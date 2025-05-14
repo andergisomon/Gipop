@@ -81,7 +81,7 @@ pub trait Setter {
 }
 
 pub trait Checker { // this is a trait not shared by simple terminals w/o status bits
-    fn check(&self, channel: ChannelInput) -> Result<BitVec::<u8, Lsb0>, String>; // Returns all non-value bits
+    fn check(&self, channel: Option<ChannelInput>) -> Option<Result<BitVec::<u8, Lsb0>, String>>; // Returns all non-value bits
 }
 
 #[derive(PartialEq)]
@@ -91,9 +91,10 @@ pub enum KBusTerminalGender {
     Input, // 0b10
 }
 
-// TODO: Create constructor
+// this struct shouldn't actually be populated manually, as all fields except tx_data and rx_data are stored in the
+// bk1120 coupler table (starting index 4000); TODO: automatically define E and K bus subdevices
 pub struct KBusSubDevice {
-    // name: u8, // for intelligent terminals, name is the 4-digit decimal in 'KLXXXX'
+    pub hr_name: u32, // human-readable: the 4-digit decimal in 'KLXXXX'; we're not gonna use the coding specified for simple terminals in https://download.beckhoff.com/download/document/io/bus-terminals/bk11x0_bk1250en.pdf
     pub intelligent: bool, // intelligent or simple terminal? 0 -> intelligent, 1 -> simple
     pub size_in_bits: u8, // terminal size in bits
     pub is_kl1212: bool, // is the terminal KL1212?
@@ -119,14 +120,14 @@ impl Getter for KBusSubDevice {
         };
 
         if self.gender == KBusTerminalGender::Input {
-            values = self.rx_data.as_ref().unwrap().clone();
+            values = self.rx_data.clone().unwrap();
         }
         if self.gender == KBusTerminalGender::Output {
-            values = self.tx_data.as_ref().unwrap().clone();
+            values = self.tx_data.clone().unwrap();
         }
         if self.gender == KBusTerminalGender::Enby {
-            values = self.rx_data.as_ref().unwrap().clone();
-            values.extend(self.tx_data.as_ref().unwrap().clone());
+            values = self.rx_data.clone().unwrap();
+            values.extend(self.tx_data.clone().unwrap());
         }
 
         if self.gender == KBusTerminalGender::Input || self.gender == KBusTerminalGender::Output {
@@ -356,10 +357,11 @@ impl Getter for AITerm4Ch {
 }
 
 impl Checker for AITerm4Ch {
-    fn check(&self, channel: ChannelInput) -> Result<BitVec::<u8, Lsb0>, String> {
+    fn check(&self, channel: Option<ChannelInput>) -> Option<Result<BitVec::<u8, Lsb0>, String>> {
         let channel: usize = match channel {
-            ChannelInput::Channel(tc) => tc as usize,
-            ChannelInput::Index(idx) => idx as usize + 1,
+            Some(ChannelInput::Channel(tc)) => tc as usize,
+            Some(ChannelInput::Index(idx)) => idx as usize + 1,
+            None => return Some(Err("Cannot return None channel. Can only specify Channels 1-4.".into()))
         };
         
         let ch_status = match channel {
@@ -367,7 +369,7 @@ impl Checker for AITerm4Ch {
             2 => self.ch_statuses.ch2.clone(),
             3 => self.ch_statuses.ch3.clone(),
             4 => self.ch_statuses.ch4.clone(),
-            _ => return Err("Invalid channel. Can only specify Channels 1-4.".into())
+            _ => return Some(Err("Invalid channel. Can only specify Channels 1-4.".into()))
         };
 
         let mut bits = BitVec::<u8, Lsb0>::new();
@@ -389,6 +391,24 @@ impl Checker for AITerm4Ch {
         bits.push(ch_status.overrange);
         bits.push(ch_status.underrange);
 
-        Ok(bits)
+        Some(Ok(bits))
+    }
+}
+
+impl Checker for KBusSubDevice {
+    fn check(&self, _channel: Option<ChannelInput>) -> Option<Result<BitVec::<u8, Lsb0>, String>> {
+        if self.intelligent && self.hr_name == 6581 {
+            let value: BitVec::<u8, Lsb0> = self.tx_data.clone().unwrap(); // Input image, transmitted from terminal to controller
+            let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
+            return Some(Ok(BitVec::from_bitslice(&bits[0..8]))) // SB - Status Byte
+        }
+
+        if self.gender != KBusTerminalGender::Enby {
+            return None
+        }
+        else {
+            unimplemented!("We don't have access to simple enby terminals")
+        }
+
     }
 }

@@ -6,6 +6,7 @@ pub static TERM_KL1889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
     Arc::new(
         RwLock::new(
             KBusSubDevice {
+                hr_name: 1889,
                 intelligent: false,
                 size_in_bits: KL1889_IMG_LEN_BITS,
                 is_kl1212: false,
@@ -39,6 +40,7 @@ pub static TERM_KL2889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
     Arc::new(
         RwLock::new(
             KBusSubDevice {
+                hr_name: 2889,
                 intelligent: false,
                 size_in_bits: KL2889_IMG_LEN_BITS,
                 is_kl1212: false,
@@ -209,6 +211,7 @@ pub static TERM_KL6581: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| 
     Arc::new(
         RwLock::new(
             KBusSubDevice {
+                hr_name: 6581,
                 intelligent: true,
                 size_in_bits: KL6581_IMG_LEN_BITS, // 12 bytes input, 12 bytes output
                 is_kl1212: false,

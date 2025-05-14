@@ -259,7 +259,6 @@ fn write_ar1_lights_to_shmem(val: DataValue, _range: &NumericRange) -> StatusCod
 
     match val.value {
         Some(Variant::UInt32(n)) => {
-            log::info!("SERVER RECEIVED VALUE: {}", n);
             data.area_1_lights_hmi_cmd = n;
             write_data(&mut mmap, data);
             StatusCode::Good
