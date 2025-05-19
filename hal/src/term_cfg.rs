@@ -1,6 +1,7 @@
 use bitvec::prelude::*;
 use enum_iterator::Sequence;
 use std::ops::Deref;
+use std::sync::{Arc, RwLock};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Sequence)]
@@ -178,6 +179,22 @@ impl DITerm {
         Self {
             values: BitVec::<u8, Lsb0>::repeat(false, num_of_channels as usize),
             num_of_channels: num_of_channels
+        }
+    }
+
+    pub fn refresh(&mut self, bits: &BitSlice<u8, Lsb0>) {
+        let num_of_channels = self.values.len();
+    
+        if bits.len() != num_of_channels {
+            panic!(
+                "Actual DITerm Values len {} does not match defined number of channels {}",
+                bits.len(),
+                num_of_channels
+            );
+        }
+    
+        for i in 0..num_of_channels as usize {
+            self.values.set(i, bits[i]);
         }
     }
 }

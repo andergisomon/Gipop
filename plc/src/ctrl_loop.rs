@@ -123,11 +123,15 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     })
     .expect("build shared mem thread");
 
-    let peek_num_of_channels = term_states.ebus_di_terms[0].read().expect("get EL1889 from dyn heap read lock");
-    log::info!("EL1889 in dyn heap: {}", peek_num_of_channels.num_of_channels);
-    
-    let peek_num_of_channels = term_states.ebus_do_terms[0].read().expect("get EL2889 from dyn heap read lock");
-    log::info!("EL2889 in dyn heap: {}", peek_num_of_channels.num_of_channels);
+    {
+        let peek_num_of_channels = term_states.ebus_di_terms[0].read().expect("get EL1889 from dyn heap read lock");
+        log::info!("EL1889 in dyn heap: {}", peek_num_of_channels.num_of_channels);
+    }
+
+    {
+        let peek_num_of_channels = term_states.ebus_do_terms[0].read().expect("get EL2889 from dyn heap read lock");
+        log::info!("EL2889 in dyn heap: {}", peek_num_of_channels.num_of_channels);
+    }
 
     // Enter the primary loop
     loop {
@@ -141,6 +145,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         // PLC logic entry point. Cycle time watchdog should be here (TODO)
         plc_execute_logic().await;
 
+        {
+            let peek_num_of_channels = term_states.ebus_di_terms[0].read().expect("get EL1889 from dyn heap read lock");
+            log::info!("EL1889 in dyn heap value: {:b}", peek_num_of_channels.values);
+        }
+
         // Physical Input Terminal --> Program Code Input Terminal Object
         for subdevice in group.iter(&maindevice) {
             let input = subdevice.inputs_raw();
@@ -148,6 +157,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         
             if subdevice.name() == "EL1889" {
                 el1889_handler(&*TERM_EL1889, input_bits);
+
+                {
+                    let mut guard = term_states.ebus_di_terms[0].write().expect("get EL1889 from dyn heap read lock");
+                    guard.refresh(input_bits);
+                }
             }
 
             if subdevice.name() == "EL3024" {
