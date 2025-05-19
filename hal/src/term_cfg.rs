@@ -193,7 +193,7 @@ impl DITerm {
             );
         }
     
-        for i in 0..num_of_channels as usize {
+        for i in 0..num_of_channels {
             self.values.set(i, bits[i]);
         }
     }
@@ -236,6 +236,22 @@ impl DOTerm {
         Self {
             values: BitVec::<u8, Lsb0>::repeat(false, num_of_channels as usize),
             num_of_channels: num_of_channels
+        }
+    }
+
+    pub fn refresh(&self, dst: &mut BitSlice<u8, Lsb0>) {    
+        let num_of_channels = self.values.len();
+    
+        if dst.len() != num_of_channels {
+            panic!(
+                "Actual DOTerm Values len {} does not match defined number of channels {}",
+                dst.len(),
+                num_of_channels
+            );
+        }
+    
+        for i in 0..num_of_channels {
+            dst.set(i, self.values[i]);
         }
     }
 }

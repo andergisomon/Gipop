@@ -22,6 +22,10 @@ impl TermStates {
     }
 }
 
+pub fn init_term_states() -> Arc<RwLock<TermStates>> {
+    Arc::new(RwLock::new(TermStates::new()))
+}
+
 
 pub static TERM_KL1889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| {
     Arc::new(

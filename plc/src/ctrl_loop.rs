@@ -80,14 +80,18 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     let group = group.into_op(&maindevice).await.expect("PRE-OP -> OP"); // Should probably handle errors better
 
     // initialize terminal states
-    let mut term_states = TermStates::new();
+    let term_states = init_term_states();
+    // let mut term_states = TermStates::new();
     
     for subdevice in group.iter(&maindevice) {
         if subdevice.name() == "EL2889" {
             let io = subdevice.io_raw();
             let size = 8*(io.inputs().len() + io.outputs().len());
-            term_states.ebus_do_terms.
-            push(
+            let guard = term_states.clone();
+            let mut guard = guard.write().expect("get term_states write guard");
+
+            guard.ebus_do_terms
+            .push(
                 Arc::new(
                     RwLock::new(
                         DOTerm::new(size as u8))));
@@ -96,8 +100,11 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         if subdevice.name() == "EL1889" {
             let io = subdevice.io_raw();
             let size = 8*(io.inputs().len() + io.outputs().len());
-            term_states.ebus_di_terms.
-            push(
+            let guard = term_states.clone();
+            let mut guard = guard.write().expect("get term_states write guard");
+           
+            guard.ebus_di_terms
+            .push(
                 Arc::new(
                     RwLock::new(
                         DITerm::new(size as u8))));
@@ -107,6 +114,8 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     let shutdown = Arc::new(AtomicBool::new(false)); // Handling Ctrl+C
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");    
 
+    let shm_ts_ref = term_states.clone();
+
     std::thread::Builder::new()
     .name("PlcOpcUaServerShmThread".to_owned())
     .spawn(move || {
@@ -114,7 +123,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         smol::block_on(runtime.run(async move {
             loop {
                 {
-                    opcua_shm();
+                    opcua_shm(shm_ts_ref.clone());
                 }
 
                 Timer::after(Duration::from_millis(100)).await;
@@ -124,12 +133,24 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     .expect("build shared mem thread");
 
     {
-        let peek_num_of_channels = term_states.ebus_di_terms[0].read().expect("get EL1889 from dyn heap read lock");
+        let peek_num_of_channels 
+        = term_states.read()
+        .expect("get term_states read guard");
+        
+        let peek_num_of_channels = peek_num_of_channels.ebus_di_terms[0].read()
+        .expect("get EL1889 from dyn heap read lock");
+
         log::info!("EL1889 in dyn heap: {}", peek_num_of_channels.num_of_channels);
     }
 
     {
-        let peek_num_of_channels = term_states.ebus_do_terms[0].read().expect("get EL2889 from dyn heap read lock");
+        let peek_num_of_channels 
+        = term_states.read()
+        .expect("get term_states read guard");
+        
+        let peek_num_of_channels = peek_num_of_channels.ebus_do_terms[0].read()
+        .expect("get EL2889 from dyn heap read lock");
+
         log::info!("EL2889 in dyn heap: {}", peek_num_of_channels.num_of_channels);
     }
 
@@ -143,10 +164,16 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         group.tx_rx(&maindevice).await.expect("TX/RX");
 
         // PLC logic entry point. Cycle time watchdog should be here (TODO)
-        plc_execute_logic().await;
+        plc_execute_logic(term_states.clone()).await;
 
         {
-            let peek_num_of_channels = term_states.ebus_di_terms[0].read().expect("get EL1889 from dyn heap read lock");
+            let peek_num_of_channels 
+            = term_states.read()
+            .expect("get term_states read guard");
+
+            let peek_num_of_channels = peek_num_of_channels.ebus_di_terms[0].read()
+            .expect("get EL1889 from dyn heap read lock");
+
             log::info!("EL1889 in dyn heap value: {:b}", peek_num_of_channels.values);
         }
 
@@ -159,7 +186,12 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
                 el1889_handler(&*TERM_EL1889, input_bits);
 
                 {
-                    let mut guard = term_states.ebus_di_terms[0].write().expect("get EL1889 from dyn heap read lock");
+                    let guard =
+                    term_states.read().expect("get term_states read guard");
+
+                    let mut guard = guard.ebus_di_terms[0].write()
+                    .expect("get EL1889 from dyn heap read lock");
+
                     guard.refresh(input_bits);
                 }
             }
@@ -186,6 +218,16 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
 
             if subdevice.name() == "EL2889" {
                 el2889_handler(output_bits, &*TERM_EL2889);
+
+                {
+                    let guard = 
+                    term_states.read().expect("get term_states read guard");
+
+                    let guard = guard.ebus_do_terms[0].read()
+                    .expect("get EL2889 from dyn heap read lock");
+
+                    guard.refresh(output_bits);
+                }
             }
             if subdevice.name() == "BK1120" {
                 // View only KL6581 portion of the output process image (bytes 2-13)
@@ -209,7 +251,7 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn opcua_shm() {
+fn opcua_shm(term_states: Arc<RwLock<TermStates>>) {
     let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
 
     let mut mmap = map_shared_memory(&file);
@@ -238,7 +280,7 @@ fn opcua_shm() {
     plc_data.area_1_lights = read_area_1_lights() as u32;
     data.area_1_lights = plc_data.area_1_lights;
 
-    plc_data.area_2_lights = read_area_2_lights() as u32;
+    plc_data.area_2_lights = read_area_2_lights(term_states) as u32;
     data.area_2_lights = plc_data.area_2_lights;
 
     // Incoming to PLC: HMI command from shmem to local PLC state

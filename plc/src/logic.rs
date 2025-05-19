@@ -2,7 +2,7 @@ use bitvec::prelude::*;
 // For getting read/write locks to terminal objects in PLC memory
 use hal::io_defs::*;
 use hal::term_cfg::*;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, RwLock, LazyLock, Mutex};
 use std::fs::OpenOptions;
 use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 
@@ -32,8 +32,8 @@ impl LocalPlcData {
 
 pub static LOCAL_PLC_DATA: LazyLock<Mutex<LocalPlcData>> = LazyLock::new(|| Mutex::new(LocalPlcData::new()));
 
-pub async fn plc_execute_logic() {
-    enocean_sm();
+pub async fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>) {
+    enocean_sm(term_states);
 
     let cmd = LOCAL_PLC_DATA.lock().unwrap();
 
@@ -50,7 +50,9 @@ pub async fn plc_execute_logic() {
     }
 }
 
-fn enocean_sm() {
+fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
+    let ts_a = Arc::clone(&term_states);
+    let ts_b = ts_a.clone();
 
     if check_sb_bit(6) { // Error reported
         log::error!("{}", CnodeErrors::cnode_err_to_string(read_cnode()));
@@ -79,12 +81,12 @@ fn enocean_sm() {
 
             if (read_db3() & 0b11110000) == 0b00010000 {
                 log::info!("Rocker A, I pos. pressed");
-                write_all_channel_el2889(true);
+                write_all_channel_el2889(true, ts_a);
             }
 
             if (read_db3() & 0b11110000) == 0b00110000 {
                 log::info!("Rocker A, 0 pos. pressed");
-                write_all_channel_el2889(false);
+                write_all_channel_el2889(false, ts_b);
             }
             // log::info!("sb1 through check: {}", check_sb1());
             write_cb1(!check_sb_bit(1)); // Very important. Tells KL6581 we've fetched the packet.
@@ -184,15 +186,18 @@ pub fn read_area_1_lights() -> u8 {
     return reading.pick_simple().unwrap();
 }
 
-pub fn read_area_2_lights() -> u8 {
-    let rd_guard = &*TERM_EL2889.read().expect("Acquire TERM_EL2889 read guard");
-    let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
-    return reading.pick_simple().unwrap();
-}
+pub fn read_area_2_lights(term_states: Arc<RwLock<TermStates>>) -> u8 {
+    let rd_guard =
+    term_states.read()
+    .expect("get term_states read guard");
 
-fn set_ch16_el2889() {
-    let wr_guard = &mut *TERM_EL2889.write().expect("acquire EL2889 write lock");
-    wr_guard.write(true, ChannelInput::Channel(TermChannel::Ch16)).unwrap();
+    let rd_guard =
+    rd_guard.ebus_do_terms[0]
+    .write()
+    .expect("acquire EL2889 dyn heap write lock");
+
+    let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+    return reading.pick_simple().unwrap()
 }
 
 fn write_all_channel_kl2889(val: bool) {
@@ -202,9 +207,17 @@ fn write_all_channel_kl2889(val: bool) {
     }
 }
 
-fn write_all_channel_el2889(val: bool) {
-    let wr_guard = &mut *TERM_EL2889.write().expect("acquire EL2889 write lock");
-    for idx in 0..EL2889_IMG_LEN_BITS { // All 16 bits of EL2889
+fn write_all_channel_el2889(val: bool, term_states: Arc<RwLock<TermStates>>) {
+    let wr_guard =
+    term_states.read()
+    .expect("get term_states read guard");
+
+    let mut wr_guard =
+    wr_guard.ebus_do_terms[0]
+    .write()
+    .expect("acquire EL2889 dyn heap write lock");
+
+    for idx in 0..wr_guard.num_of_channels {
         wr_guard.write(val, ChannelInput::Index(idx)).unwrap();
     }
 }
