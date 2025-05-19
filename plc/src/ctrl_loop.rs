@@ -4,7 +4,7 @@ use ethercrab::{
 use async_io::Timer;
 use memmap2::{Mmap, MmapMut};
 use std::{
-    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}, RwLock},
     time::Duration,
     fs::OpenOptions
 };
@@ -79,6 +79,31 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
     // Move from PRE-OP -> SAFE-OP -> OP
     let group = group.into_op(&maindevice).await.expect("PRE-OP -> OP"); // Should probably handle errors better
 
+    // initialize terminal states
+    let mut term_states = TermStates::new();
+    
+    for subdevice in group.iter(&maindevice) {
+        if subdevice.name() == "EL2889" {
+            let io = subdevice.io_raw();
+            let size = 8*(io.inputs().len() + io.outputs().len());
+            term_states.ebus_do_terms.
+            push(
+                Arc::new(
+                    RwLock::new(
+                        DOTerm::new(size as u8))));
+        }
+
+        if subdevice.name() == "EL1889" {
+            let io = subdevice.io_raw();
+            let size = 8*(io.inputs().len() + io.outputs().len());
+            term_states.ebus_di_terms.
+            push(
+                Arc::new(
+                    RwLock::new(
+                        DITerm::new(size as u8))));
+        }
+    }
+
     let shutdown = Arc::new(AtomicBool::new(false)); // Handling Ctrl+C
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");    
 
@@ -97,7 +122,12 @@ pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
         }));
     })
     .expect("build shared mem thread");
+
+    let peek_num_of_channels = term_states.ebus_di_terms[0].read().expect("get EL1889 from dyn heap read lock");
+    log::info!("EL1889 in dyn heap: {}", peek_num_of_channels.num_of_channels);
     
+    let peek_num_of_channels = term_states.ebus_do_terms[0].read().expect("get EL2889 from dyn heap read lock");
+    log::info!("EL2889 in dyn heap: {}", peek_num_of_channels.num_of_channels);
 
     // Enter the primary loop
     loop {

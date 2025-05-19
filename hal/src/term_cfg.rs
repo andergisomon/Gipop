@@ -173,6 +173,15 @@ pub struct DITerm {
     pub num_of_channels: u8,
 }
 
+impl DITerm {
+    pub fn new(num_of_channels: u8) -> Self {
+        Self {
+            values: BitVec::<u8, Lsb0>::repeat(false, num_of_channels as usize),
+            num_of_channels: num_of_channels
+        }
+    }
+}
+
 // how to use:
 // let mut read_guard = &*TERM_EL1889.read().expect("Acquire TERM_EL1889 read guard");
 // if read_guard.read(TermChannel::Ch11).unwrap() == ElectricalObservable::Simple(1) {
@@ -203,6 +212,15 @@ impl Getter for DITerm {
 pub struct DOTerm {
     pub values: BitVec<u8, Lsb0>,
     pub num_of_channels: u8,
+}
+
+impl DOTerm {
+    pub fn new(num_of_channels: u8) -> Self {
+        Self {
+            values: BitVec::<u8, Lsb0>::repeat(false, num_of_channels as usize),
+            num_of_channels: num_of_channels
+        }
+    }
 }
 
 // need to acquire write lock to DO terminal's static instance of LazyLock<Arc<RwLock<DOTerm>>>
@@ -246,6 +264,7 @@ impl Getter for DOTerm {
     }
 }
 
+// TODO this should be a Vec<> instead
 pub struct Analog4ChValues {
     pub ch1: BitVec<u8, Lsb0>,
     pub ch2: BitVec<u8, Lsb0>,
@@ -264,6 +283,7 @@ impl Analog4ChValues {
     }
 }
 
+// TOOD this should be a Vec<> instead
 pub struct Analog4ChStatuses {
     pub ch1: El30xxStatuses,
     pub ch2: El30xxStatuses,
@@ -315,14 +335,16 @@ pub struct AITerm4Ch {
     pub ch_statuses: Analog4ChStatuses
 }
 
+// TODO the type AITerm4Ch needs to be completely refactored to be number-of-channels-agnostic
+// the data contained (values and statuses) should really be Vec<> instead of structs
 impl AITerm4Ch {
     pub fn new() -> Self {
         Self {
             v_or_i: VoltageOrCurrent::Current,
             input_range: InputRange::Current_4_20mA,
             num_of_channels: 4,
-            ch_values: Analog4ChValues::new(),
-            ch_statuses: Analog4ChStatuses::new()
+            ch_values: Analog4ChValues::new(), // this should really be a Vec<>
+            ch_statuses: Analog4ChStatuses::new() // this should really be a Vec<>
         }
     }
 }

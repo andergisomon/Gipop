@@ -2,6 +2,27 @@ use crate::term_cfg::*;
 use bitvec::prelude::*;
 use std::sync::{Arc, RwLock, LazyLock};
 
+// Let's start with simple E-bus terminals for now
+#[derive(Clone)]
+pub struct TermStates {
+    // kbus_terms: Vec<Arc<RwLock<KBusSubDevice>>>,
+    pub ebus_di_terms: Vec<Arc<RwLock<DITerm>>>,
+    pub ebus_do_terms: Vec<Arc<RwLock<DOTerm>>>,
+    // ebus_ai_terms: Vec<Arc<RwLock<AITerm4Ch>>>, // TODO the type AITerm4Ch needs to be completely refactored to be number-of-channels-agnostic
+}
+
+impl TermStates {
+    pub fn new() -> Self {
+        Self {
+            // kbus_terms:    Vec::new(),
+            ebus_di_terms: Vec::new(),
+            ebus_do_terms: Vec::new(),
+            // ebus_ai_terms: Vec::new(),
+        }
+    }
+}
+
+
 pub static TERM_KL1889: LazyLock<Arc<RwLock<KBusSubDevice>>> = LazyLock::new(|| {
     Arc::new(
         RwLock::new(
