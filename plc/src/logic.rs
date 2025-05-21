@@ -4,6 +4,7 @@ use hal::io_defs::*;
 use hal::term_cfg::*;
 use std::sync::{Arc, RwLock, LazyLock, Mutex};
 use std::fs::OpenOptions;
+use std::time::Duration;
 use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
@@ -99,6 +100,8 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
             }
         }
     }
+
+    std::thread::sleep(Duration::from_millis(10)); // We're not controlling servos :)
 }
 
 // use fn write() implemented by Setter trait

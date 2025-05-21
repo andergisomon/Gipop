@@ -24,7 +24,7 @@ const MAX_FRAMES: usize = 16; /// Max no. of EtherCAT frames that can be in flig
 const PDI_LEN: usize = 64; /// Max total PDI length.
 static PDU_STORAGE: PduStorage<MAX_FRAMES, MAX_PDU_DATA> = PduStorage::new();
 
-pub async fn entry_loop(network_interface: &str) -> Result<(), anyhow::Error> {
+pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error> {
 
     let network_interface = network_interface.to_string();
     

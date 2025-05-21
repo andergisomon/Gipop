@@ -3,7 +3,7 @@ pub mod ctrl_loop;
 mod shared;
 pub mod logic;
 use shared::{SharedData, SHM_PATH};
-use std::{fs::OpenOptions, path::Path,};
+use std::{env, fs::OpenOptions, path::Path,};
 
 fn main() { // opcua setup + config + shutdown should be done here
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
@@ -17,8 +17,16 @@ fn main() { // opcua setup + config + shutdown should be done here
             log::error!("Error opening the file: {}", error);
         }
     }
+
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() != 1 {
+        log::error!("Provide only 1 argument: The network interface name!");
+    }
+
+    let network_interface = &args[1];
     
-    smol::block_on(ctrl_loop::entry_loop("enp3s0")).expect("Entry loop task");
+    smol::block_on(ctrl_loop::entry_loop(network_interface)).expect("Entry loop task");
     log::info!("Program terminated.");
 }
 
