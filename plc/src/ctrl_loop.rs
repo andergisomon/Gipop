@@ -81,9 +81,9 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
     // initialize terminal states
     let term_states = init_term_states();
-    // let mut term_states = TermStates::new();
     
     for subdevice in group.iter(&maindevice) {
+        // TODO: all of these if blocks contain repetitive code, should be abstracted away in a helper function
         if subdevice.name() == "EL2889" {
             let io = subdevice.io_raw();
             let size = 8*(io.inputs().len() + io.outputs().len());
@@ -108,6 +108,20 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                 Arc::new(
                     RwLock::new(
                         DITerm::new(size as u8))));
+        }
+
+        if subdevice.name() == "EL3024" {
+            let io = subdevice.io_raw();
+            let size = (io.inputs().len() + io.outputs().len()) / 4;
+            let guard = term_states.clone();
+            let mut guard = guard.write().expect("get term_states write guard");
+            log::warn!("size of EL3024: {}", size);
+           
+            guard.ebus_ai_terms
+            .push(
+                Arc::new(
+                    RwLock::new(
+                        AITerm::new(size as u8))));
         }
     }
 
@@ -174,7 +188,22 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             let peek_num_of_channels = peek_num_of_channels.ebus_di_terms[0].read()
             .expect("get EL1889 from dyn heap read lock");
 
-            log::info!("EL1889 in dyn heap value: {:b}", peek_num_of_channels.values);
+            // log::info!("EL1889 in dyn heap value: {:b}", peek_num_of_channels.values);
+        }
+
+        {
+            let peek_num_of_channels 
+            = term_states.read()
+            .expect("get term_states read guard");
+
+            let peek_num_of_channels = peek_num_of_channels.ebus_ai_terms[0].read()
+            .expect("get EL1889 from dyn heap read lock");
+
+            let ch1_reading = peek_num_of_channels.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
+            let current = ch1_reading.pick_current().unwrap();
+            let humd = ((current * 493.0)/1000.0 + 1.022) * 5.0; // offset can be calculated delta / 5.0
+
+            log::info!("EL3024 in dyn heap value: {}", humd);
         }
 
         // Physical Input Terminal --> Program Code Input Terminal Object
@@ -183,7 +212,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             let input_bits = input.view_bits::<Lsb0>();
         
             if subdevice.name() == "EL1889" {
-                el1889_handler(&*TERM_EL1889, input_bits);
+                el1889_handler(&*TERM_EL1889, input_bits); // TODO purge static allocation
 
                 {
                     let guard =
@@ -201,6 +230,16 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                     if channel as u8 > EL3024_NUM_CHANNELS { break; }
                     el3024_handler(&*TERM_EL3024, input_bits, channel);
                 }
+
+                {
+                    let guard =
+                    term_states.read().expect("get term_states read guard");
+
+                    let mut guard = guard.ebus_ai_terms[0].write()
+                    .expect("get EL1889 from dyn heap read lock");
+
+                    guard.refresh(input_bits);
+                }
             }
 
             if subdevice.name() == "BK1120" {
@@ -217,7 +256,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             let output_bits = output.view_bits_mut::<Lsb0>();
 
             if subdevice.name() == "EL2889" {
-                el2889_handler(output_bits, &*TERM_EL2889);
+                el2889_handler(output_bits, &*TERM_EL2889); // TODO purge static allocation
 
                 {
                     let guard = 
@@ -261,18 +300,22 @@ fn opcua_shm(term_states: Arc<RwLock<TermStates>>) {
     // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
     let mut plc_data = LOCAL_PLC_DATA.lock().unwrap();
 
-    let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
-    let ch2_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
-    let current = ch2_reading.pick_current().unwrap();
-    let temp = ((current * 493.0)/1000.0 + 1.044) * 5.0; // offset can be calculated delta / 5.0
-    plc_data.temperature = temp;
-    data.temperature = temp;
+    // let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
+    {   
+        let rd_guard = term_states.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
+        let guard = rd_guard.ebus_ai_terms[0].read().unwrap();
+        let ch2_reading = guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
+        let current = ch2_reading.pick_current().unwrap();
+        let temp = ((current * 493.0)/1000.0 + 1.044) * 5.0; // offset can be calculated delta / 5.0
+        plc_data.temperature = temp;
+        data.temperature = temp;
 
-    let ch1_reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
-    let current = ch1_reading.pick_current().unwrap();
-    let rh = ((current * 493.0)/1000.0 + 1.018) * 10.0; // offset can be calculated delta / 10.0
-    plc_data.humidity = rh;
-    data.humidity = rh;
+        let ch1_reading = guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+        let current = ch1_reading.pick_current().unwrap();
+        let rh = ((current * 493.0)/1000.0 + 1.018) * 10.0; // offset can be calculated delta / 10.0
+        plc_data.humidity = rh;
+        data.humidity = rh;
+    }
 
     let rd_guard = &*TERM_KL1889.read().expect("Acquire TERM_KL1889 read guard");
     data.status = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch7))).unwrap().pick_simple().unwrap() as u32;

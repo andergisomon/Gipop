@@ -20,7 +20,7 @@ fn main() { // opcua setup + config + shutdown should be done here
 
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 1 {
+    if args.len() != 2 {
         log::error!("Provide only 1 argument: The network interface name!");
     }
 

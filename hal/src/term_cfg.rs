@@ -360,6 +360,9 @@ impl El30xxStatuses {
     }
 }
 
+
+// TODO the type AITerm4Ch needs to be completely refactored to be number-of-channels-agnostic
+// the data contained (values and statuses) should really be Vec<> instead of structs
 pub struct AITerm4Ch {
     pub v_or_i: VoltageOrCurrent,
     pub input_range: InputRange,
@@ -368,8 +371,6 @@ pub struct AITerm4Ch {
     pub ch_statuses: Analog4ChStatuses
 }
 
-// TODO the type AITerm4Ch needs to be completely refactored to be number-of-channels-agnostic
-// the data contained (values and statuses) should really be Vec<> instead of structs
 impl AITerm4Ch {
     pub fn new() -> Self {
         Self {
@@ -449,6 +450,126 @@ impl Checker for AITerm4Ch {
         Some(Ok(bits))
     }
 }
+
+pub struct AITerm {
+    pub v_or_i: VoltageOrCurrent,
+    pub input_range: InputRange,
+    pub num_of_channels: u8,
+    pub ch_values: BitVec::<u8, Lsb0>,
+    pub ch_statuses: BitVec::<u8, Lsb0>
+}
+
+impl AITerm {
+    pub fn new(num_of_channels: u8) -> Self {
+        Self {
+            v_or_i: VoltageOrCurrent::Current,
+            input_range: InputRange::Current_4_20mA,
+            num_of_channels: num_of_channels,
+            ch_values: BitVec::<u8, Lsb0>::repeat(false, (16 * num_of_channels) as usize),
+            ch_statuses: BitVec::<u8, Lsb0>::repeat(false, (16 * num_of_channels) as usize)
+        }
+    }
+
+    pub fn refresh(&mut self, bits: &BitSlice<u8, Lsb0>) {
+        let num_of_channels = (self.ch_values.len() + self.ch_statuses.len()) / 32;
+        let origin_bits_len = bits.len() / (8*num_of_channels);
+    
+        if origin_bits_len != num_of_channels {
+            panic!(
+                "Actual AITerm Values len {} does not match defined number of channels {}",
+                origin_bits_len,
+                num_of_channels
+            );
+        }
+
+        let mut buf = BitVec::<u8, Lsb0>::new();
+        let mut j: usize = 0;
+        while j < bits.len() {
+            buf.push(bits[j]);
+            j += 1;
+            if j % 16 == 0 {
+                j += 16;
+                continue;
+            }
+        }
+
+        for i in 0..16*num_of_channels {
+            self.ch_statuses.set(i, buf[i]);
+        }
+
+        let mut buf = BitVec::<u8, Lsb0>::new();
+        j = 0;
+        while j < bits.len() {
+            buf.push(bits[j+16]);
+            j += 1;
+            if j % 16 == 0 {
+                j += 16;
+                continue;
+            }
+        }
+        
+        for i in 0..16*num_of_channels {
+            self.ch_values.set(i, buf[i]);
+        }
+    }
+}
+
+impl Getter for AITerm {
+    fn read(&self, channel: Option<ChannelInput>) -> Result<ElectricalObservable, String> {
+        let channel: usize = match channel {
+            Some(ChannelInput::Channel(tc)) => tc as usize,
+            Some(ChannelInput::Index(idx)) => idx as usize + 1,
+            None => return Err(format!("Can only pass None for Enby terms"))
+        };
+
+        let raw_int: BitVec::<u8, Lsb0> =
+            match channel {
+                1 => self.ch_values[0..16].to_bitvec(),
+                2 => self.ch_values[16..32].to_bitvec(),
+                3 => self.ch_values[32..48].to_bitvec(),
+                4 => self.ch_values[48..64].to_bitvec(),
+                _ => return Err("Invalid channel. Can only specify Channels 1-4.".into())
+            };
+
+        if self.v_or_i == VoltageOrCurrent::Current {
+            let t = raw_int.load::<u16>() as f32 / 30518.0;
+            let i = 4.0*(1.0-t) + 20.0*t;
+            return Ok(ElectricalObservable::Current(i))
+        }
+        else {
+            unreachable!("Voltage signal AITerm detected. This is not yet implemented")
+        }
+        // Don't have access to any EL AI terminal that takes in voltage right now
+    }
+}
+
+impl Checker for AITerm {
+    fn check(&self, channel: Option<ChannelInput>) -> Option<Result<BitVec::<u8, Lsb0>, String>> {
+        let channel: usize = match channel {
+            Some(ChannelInput::Channel(tc)) => tc as usize,
+            Some(ChannelInput::Index(idx)) => idx as usize + 1,
+            None => return Some(Err("Cannot return None channel. Can only specify Channels 1-4.".into()))
+        };
+        
+        let ch_status = match channel {
+            1 => self.ch_statuses[0..16].to_bitvec(),
+            2 => self.ch_statuses[16..32].to_bitvec(),
+            3 => self.ch_statuses[32..48].to_bitvec(),
+            4 => self.ch_statuses[48..64].to_bitvec(),
+            _ => return Some(Err("Invalid channel. Can only specify Channels 1-4.".into()))
+        };
+
+        let mut bits = BitVec::<u8, Lsb0>::new();
+
+        for bit in ch_status.iter() {
+            bits.push(*bit);
+        }
+
+        Some(Ok(bits))
+    }
+}
+
+
 
 impl Checker for KBusSubDevice {
     fn check(&self, _channel: Option<ChannelInput>) -> Option<Result<BitVec::<u8, Lsb0>, String>> {
