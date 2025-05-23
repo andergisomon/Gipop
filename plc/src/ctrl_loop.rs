@@ -324,6 +324,16 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                     .expect("get BK1120/KL6581 from dyn heap read lock");
                     guard.refresh_term(output_bits);
                 }
+
+                // { // update KL6581 RxPDO feedback
+                //     let guard =
+                //     term_states.read().expect("get term_states read guard");
+
+                //     // kbus_terms are indexed based on physical location from BK coupler
+                //     let mut guard = guard.kbus_terms[2].write()
+                //     .expect("get BK1120/KL6581 from dyn heap read lock");
+                //     guard.refresh_ctrlr(None, Some(output_bits));
+                // }
             }
         }
 

@@ -106,9 +106,10 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
             }
             // log::info!("sb1 through check: {}", check_sb1());
             // write_cb1(!check_sb_bit(1)); // Very important. Tells KL6581 we've fetched the packet.
-            let ts_wr_cb1 = term_states.clone();
             let ts_check_sb_1 = term_states.clone();
             let check_sb_1 = check_sb_bit_dyn(ts_check_sb_1, 1);
+
+            let ts_wr_cb1 = term_states.clone();
             write_cb1_dyn(ts_wr_cb1, !check_sb_1);
         }
         else {
@@ -118,9 +119,10 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
             if buffer_full {
                 log::info!("Buffer full");
                 // write_cb1(!check_sb_bit(1)); // Very important. Tells KL6581 we've fetched the packet.
-                let ts_wr_cb1 = term_states.clone();
                 let ts_check_sb_1 = term_states.clone();
                 let check_sb_1 = check_sb_bit_dyn(ts_check_sb_1, 1);
+
+                let ts_wr_cb1 = term_states.clone();
                 write_cb1_dyn(ts_wr_cb1, !check_sb_1);
             }
         }
@@ -253,7 +255,7 @@ fn check_sb_bit_dyn(term_states: Arc<RwLock<TermStates>>, bit: usize) -> bool {
     let rd_guard = term_states.write().expect("get term_states write guard");
     let rd_guard = rd_guard.kbus_terms[2].write().expect("get KL6581 write guard");
     let reading = rd_guard.read(None).unwrap().pick_smart().unwrap();
-    return reading[bit+8];
+    return reading[bit+96];
 }
 
 pub fn read_area_1_lights(term_states: Arc<RwLock<TermStates>>) -> u8 {
