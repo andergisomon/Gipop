@@ -142,10 +142,12 @@ impl KBusTerm {
 
         if self.gender == KBusTerminalGender::Enby {
             for (idx, bit) in self.tx_data.as_ref().unwrap().iter().enumerate() {
+                if idx == dst.len() {break}
                 dst.set(idx, *bit);
             }
 
             for (idx, bit) in self.rx_data.as_ref().unwrap().iter().enumerate() {
+                if idx == dst.len() {break}
                 dst.set(idx, *bit);
             }
         }
@@ -178,15 +180,19 @@ impl KBusTerm {
         }
 
         if self.gender == KBusTerminalGender::Enby {
-            let input_bits = &input_bits.unwrap()[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
-            let output_bits: &BitSlice<u8, Lsb0> = &output_bits.unwrap()[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
 
-            for (idx, bit) in input_bits.iter().enumerate() {
-                self.tx_data.as_mut().unwrap().set(idx, *bit);
+            if input_bits != None {
+                let input_bits = &input_bits.unwrap()[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
+                for (idx, bit) in input_bits.iter().enumerate() {
+                    self.tx_data.as_mut().unwrap().set(idx, *bit);
+                }
             }
 
-            for (idx, bit) in output_bits.iter().enumerate() {
-                self.rx_data.as_mut().unwrap().set(idx, *bit);
+            if output_bits != None {
+                let output_bits: &BitSlice<u8, Lsb0> = &output_bits.unwrap()[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
+                for (idx, bit) in output_bits.iter().enumerate() {
+                    self.rx_data.as_mut().unwrap().set(idx, *bit);
+                }
             }
         }
 

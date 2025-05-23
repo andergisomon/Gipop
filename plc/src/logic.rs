@@ -73,35 +73,55 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
         log::error!("Communication Error - No KL6583 ready for op found. Check cabling and addresses");
     }
     else { // No errors
-        if read_cb1() != check_sb_bit(1) {
+        let ts_cb1 = term_states.clone();
+        let ts_check_sb_1 = term_states.clone();
+        let check_sb_1 = check_sb_bit_dyn(ts_check_sb_1, 1);
+        let read_cb1 = read_cb1_dyn(ts_cb1);
 
-            if (read_db3() & 0b11110000) == 0b01010000 {
+        log::info!("CB1: {}, SB1: {}", read_cb1, check_sb_1);
+
+        if read_cb1 != check_sb_1 {
+
+            let ts_db3 = term_states.clone();
+            let db3 = read_db3_dyn(ts_db3);
+
+            if (db3 & 0b11110000) == 0b01010000 {
                 log::info!("Rocker B, I pos. pressed");
                 write_all_channel_kl2889(ts_c, true);
             }
 
-            if (read_db3() & 0b11110000) == 0b01110000 {
+            if (db3 & 0b11110000) == 0b01110000 {
                 log::info!("Rocker B, O pos. pressed");
                 write_all_channel_kl2889(ts_d, false);
             }
 
-            if (read_db3() & 0b11110000) == 0b00010000 {
+            if (db3 & 0b11110000) == 0b00010000 {
                 log::info!("Rocker A, I pos. pressed");
                 write_all_channel_el2889(true, ts_a);
             }
 
-            if (read_db3() & 0b11110000) == 0b00110000 {
+            if (db3 & 0b11110000) == 0b00110000 {
                 log::info!("Rocker A, 0 pos. pressed");
                 write_all_channel_el2889(false, ts_b);
             }
             // log::info!("sb1 through check: {}", check_sb1());
-            write_cb1(!check_sb_bit(1)); // Very important. Tells KL6581 we've fetched the packet.
+            // write_cb1(!check_sb_bit(1)); // Very important. Tells KL6581 we've fetched the packet.
+            let ts_wr_cb1 = term_states.clone();
+            let ts_check_sb_1 = term_states.clone();
+            let check_sb_1 = check_sb_bit_dyn(ts_check_sb_1, 1);
+            write_cb1_dyn(ts_wr_cb1, !check_sb_1);
         }
         else {
             // log::info!("CB.1 == SB.1");
-            if buffer_full() {
+            let ts_buf_full = term_states.clone();
+            let buffer_full = buffer_full_dyn(ts_buf_full);
+            if buffer_full {
                 log::info!("Buffer full");
-                write_cb1(!check_sb_bit(1)); // Very important. Tells KL6581 we've fetched the packet.
+                // write_cb1(!check_sb_bit(1)); // Very important. Tells KL6581 we've fetched the packet.
+                let ts_wr_cb1 = term_states.clone();
+                let ts_check_sb_1 = term_states.clone();
+                let check_sb_1 = check_sb_bit_dyn(ts_check_sb_1, 1);
+                write_cb1_dyn(ts_wr_cb1, !check_sb_1);
             }
         }
     }
@@ -177,7 +197,7 @@ fn read_cb1_dyn(term_states: Arc<RwLock<TermStates>>) -> bool {
     return bits[1];
 }
 
-pub fn read_db3() -> u8 {
+fn read_db3() -> u8 {
     let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
     let reading = rd_guard.read(None).unwrap();
     let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
@@ -227,6 +247,13 @@ fn check_sb_bit(bit: usize) -> bool {
     let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
     let reading: BitVec<u8, Lsb0> = rd_guard.check(None).unwrap().expect("call check");
     return reading.as_bitslice()[bit];
+}
+
+fn check_sb_bit_dyn(term_states: Arc<RwLock<TermStates>>, bit: usize) -> bool {
+    let rd_guard = term_states.write().expect("get term_states write guard");
+    let rd_guard = rd_guard.kbus_terms[2].write().expect("get KL6581 write guard");
+    let reading = rd_guard.read(None).unwrap().pick_smart().unwrap();
+    return reading[bit+8];
 }
 
 pub fn read_area_1_lights(term_states: Arc<RwLock<TermStates>>) -> u8 {
