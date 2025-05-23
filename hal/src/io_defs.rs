@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock, LazyLock};
 // Let's start with simple E-bus terminals for now
 #[derive(Clone)]
 pub struct TermStates {
-    // kbus_terms: Vec<Arc<RwLock<KBusSubDevice>>>,
+    pub kbus_terms: Vec<Arc<RwLock<KBusTerm>>>,
     pub ebus_di_terms: Vec<Arc<RwLock<DITerm>>>,
     pub ebus_do_terms: Vec<Arc<RwLock<DOTerm>>>,
     pub ebus_ai_terms: Vec<Arc<RwLock<AITerm>>>,
@@ -15,7 +15,7 @@ pub struct TermStates {
 impl TermStates {
     pub fn new() -> Self {
         Self {
-            // kbus_terms:    Vec::new(),
+            kbus_terms:    Vec::new(),
             ebus_di_terms: Vec::new(),
             ebus_do_terms: Vec::new(),
             ebus_ai_terms: Vec::new(),

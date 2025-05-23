@@ -85,7 +85,7 @@ pub trait Checker { // this is a trait not shared by simple terminals w/o status
     fn check(&self, channel: Option<ChannelInput>) -> Option<Result<BitVec::<u8, Lsb0>, String>>; // Returns all non-value bits
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum KBusTerminalGender {
     Enby, // 0b00
     Output, // 0b01
@@ -93,8 +93,12 @@ pub enum KBusTerminalGender {
 }
 
 // this is a parallel refactor of KBusSubDevice
+/// `hr_name`: Human-readable name. The 4 digits appended to KL: e.g. KLXXXX.
+/// 
+/// NB: `slot_idx_range` is a tuple of the form (begin, end)
+#[derive(Clone)]
 pub struct KBusTerm {
-    pub hr_name: u32, // human-readable: the 4-digit decimal in 'KLXXXX'; we're not gonna use the coding specified for simple terminals in https://download.beckhoff.com/download/document/io/bus-terminals/bk11x0_bk1250en.pdf
+    pub name: u16, // not human readable. K-bus terminals are not EtherCAT SubDevices so they don't store their exact human readable name (unless they're intelligent)
     pub intelligent: bool, // intelligent or simple terminal? 0 -> intelligent, 1 -> simple
     pub size_in_bits: u8, // terminal size in bits
     pub gender: KBusTerminalGender, // 00 -> KL1202 or KL2212 (digital terminals with both input and output), 01 -> output terminal, 10 -> input terminal
@@ -105,19 +109,20 @@ pub struct KBusTerm {
 
 impl KBusTerm {
     pub fn new(
-        hr_name: u32,
+        name: u16,
         intelligent: bool,
         size_in_bits: u8,
         gender: KBusTerminalGender,
         slot_idx_range: (u8, u8),
     ) -> Self {
+        let gender_ = gender.clone();
         Self {
-            hr_name: hr_name,
+            name: name,
             intelligent: intelligent,
             size_in_bits: size_in_bits,
             gender: gender,
-            tx_data: None,
-            rx_data: None,
+            tx_data: if gender_ == KBusTerminalGender::Input || gender_ == KBusTerminalGender::Enby {Some(BitVec::<u8, Lsb0>::repeat(false, size_in_bits as usize))} else {None},
+            rx_data: if gender_ == KBusTerminalGender::Output || gender_ == KBusTerminalGender::Enby {Some(BitVec::<u8, Lsb0>::repeat(false, size_in_bits as usize))} else {None},
             slot_idx_range: slot_idx_range,
         }
     }
@@ -205,14 +210,14 @@ impl Getter for KBusTerm {
         };
 
         if self.gender == KBusTerminalGender::Input {
-            buf = self.rx_data.clone().unwrap();
+            buf = self.tx_data.clone().expect("tx_data not initialized");
         }
         if self.gender == KBusTerminalGender::Output {
-            buf = self.tx_data.clone().unwrap();
+            buf = self.rx_data.clone().expect("rx_data not initialized");
         }
         if self.gender == KBusTerminalGender::Enby {
-            buf = self.rx_data.clone().unwrap();
-            buf.extend(self.tx_data.clone().unwrap());
+            buf = self.rx_data.clone().expect("rx_data not initialized");
+            buf.extend(self.tx_data.clone().expect("tx_data not initialized"));
         }
 
         if self.gender == KBusTerminalGender::Input || self.gender == KBusTerminalGender::Output {
@@ -240,10 +245,10 @@ impl Setter for KBusTerm {
             ChannelInput::Index(idx) => idx as usize, // Index starts at 0
         };
     
-        if channel > (self.tx_data.as_ref().unwrap().len() as usize) {
+        if channel > (self.rx_data.as_ref().unwrap().len() as usize) {
             return Err("Specified channel doesn't exist. Index out of bounds".into())
         }
-        self.tx_data.as_mut().unwrap().set(channel, data_to_write);
+        self.rx_data.as_mut().unwrap().set(channel, data_to_write);
         Ok(())
     }
 }
