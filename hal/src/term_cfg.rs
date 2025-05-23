@@ -92,6 +92,162 @@ pub enum KBusTerminalGender {
     Input, // 0b10
 }
 
+// this is a parallel refactor of KBusSubDevice
+pub struct KBusTerm {
+    pub hr_name: u32, // human-readable: the 4-digit decimal in 'KLXXXX'; we're not gonna use the coding specified for simple terminals in https://download.beckhoff.com/download/document/io/bus-terminals/bk11x0_bk1250en.pdf
+    pub intelligent: bool, // intelligent or simple terminal? 0 -> intelligent, 1 -> simple
+    pub size_in_bits: u8, // terminal size in bits
+    pub gender: KBusTerminalGender, // 00 -> KL1202 or KL2212 (digital terminals with both input and output), 01 -> output terminal, 10 -> input terminal
+    pub tx_data: Option<BitVec<u8, Lsb0>>, // Output data for Simple Terminals
+    pub rx_data: Option<BitVec<u8, Lsb0>>, // Input data for Simple Terminals
+    pub slot_idx_range: (u8, u8), // index range of terminal within BK coupler process image (begin, end)
+}
+
+impl KBusTerm {
+    pub fn new(
+        hr_name: u32,
+        intelligent: bool,
+        size_in_bits: u8,
+        gender: KBusTerminalGender,
+        slot_idx_range: (u8, u8),
+    ) -> Self {
+        Self {
+            hr_name: hr_name,
+            intelligent: intelligent,
+            size_in_bits: size_in_bits,
+            gender: gender,
+            tx_data: None,
+            rx_data: None,
+            slot_idx_range: slot_idx_range,
+        }
+    }
+
+    /// `dst` is RxPDO of term.
+    /// 
+    /// this is for setting outputs
+    pub fn refresh_term(&self, dst: &mut BitSlice<u8, Lsb0>) {
+        let (slot_idx_begin, slot_idx_end) = self.slot_idx_range;
+        let dst = &mut dst[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
+
+        if self.gender == KBusTerminalGender::Output {
+            for (idx, bit) in self.rx_data.as_ref().unwrap().iter().enumerate() {
+                dst.set(idx, *bit);
+            }
+        }
+
+        if self.gender == KBusTerminalGender::Enby {
+            for (idx, bit) in self.tx_data.as_ref().unwrap().iter().enumerate() {
+                dst.set(idx, *bit);
+            }
+
+            for (idx, bit) in self.rx_data.as_ref().unwrap().iter().enumerate() {
+                dst.set(idx, *bit);
+            }
+        }
+    }
+
+    /// `dst` is the controller, for TxPDO from input terminals and RxPDO feedback from output terminals to verify.
+    /// 
+    /// NB: If `output_bits` is not None, the actual RxPDO from the terminal will overwrite the controller copy in memory.
+    /// If there is contention between terminal and controller (i.e. faulty terminal), the command stored in controller memory may be overwritten by terminal due to refusal to change state (some fault or error)
+    pub fn refresh_ctrlr(&mut self, input_bits: Option<&BitSlice<u8, Lsb0>>, output_bits: Option<&BitSlice<u8, Lsb0>>) {
+        // `input_bits`, `output_bits` passed as input param is the entire input/output image of the BK coupler
+        let (slot_idx_begin, slot_idx_end) = self.slot_idx_range;
+
+        if input_bits != None {
+            let input_bits = &input_bits.unwrap()[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
+            if self.gender == KBusTerminalGender::Input {
+                for (idx, bit) in input_bits.iter().enumerate() {
+                    self.tx_data.as_mut().unwrap().set(idx, *bit);
+                }
+            }
+        }
+
+        if output_bits != None {
+            let output_bits: &BitSlice<u8, Lsb0> = &output_bits.unwrap()[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
+            if self.gender == KBusTerminalGender::Output {
+                for (idx, bit) in output_bits.iter().enumerate() {
+                    self.rx_data.as_mut().unwrap().set(idx, *bit);
+                }
+            }
+        }
+
+        if self.gender == KBusTerminalGender::Enby {
+            let input_bits = &input_bits.unwrap()[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
+            let output_bits: &BitSlice<u8, Lsb0> = &output_bits.unwrap()[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
+
+            for (idx, bit) in input_bits.iter().enumerate() {
+                self.tx_data.as_mut().unwrap().set(idx, *bit);
+            }
+
+            for (idx, bit) in output_bits.iter().enumerate() {
+                self.rx_data.as_mut().unwrap().set(idx, *bit);
+            }
+        }
+
+    }
+}
+
+impl Getter for KBusTerm {
+    // For Enby terminals the inputs and outputs are concatenated in this order (Lsb) as a single bitvec: [rx_data, tx_data]
+    // for reading Enby terminals, channel should be passed as None
+    fn read(&self, channel: Option<ChannelInput>) -> Result<ElectricalObservable, String> {
+        let channel: usize = match channel {
+            Some(ChannelInput::Channel(tc)) => tc as usize - 1, // TermChannel starts at 1
+            Some(ChannelInput::Index(idx)) => idx as usize, // Index starts at 0
+            None => 0,
+        };
+    
+        let mut buf: BitVec<u8> = match self.gender {
+            KBusTerminalGender::Input | KBusTerminalGender::Output => BitVec::<u8, Lsb0>::repeat(false, 16),
+            KBusTerminalGender::Enby if channel == 0 => BitVec::<u8, Lsb0>::repeat(false, 32*8),
+            _ => return Err(format!("Must pass channel input param as None for Enby terms"))
+        };
+
+        if self.gender == KBusTerminalGender::Input {
+            buf = self.rx_data.clone().unwrap();
+        }
+        if self.gender == KBusTerminalGender::Output {
+            buf = self.tx_data.clone().unwrap();
+        }
+        if self.gender == KBusTerminalGender::Enby {
+            buf = self.rx_data.clone().unwrap();
+            buf.extend(self.tx_data.clone().unwrap());
+        }
+
+        if self.gender == KBusTerminalGender::Input || self.gender == KBusTerminalGender::Output {
+            let readout = match buf.get(channel) {
+                Some(bit) => bit,
+                None => return Err(format!("Error reading channel {}: Index out of bounds", channel)),
+            };
+            let readout_cast = readout.deref().clone() as u8;
+            Ok(ElectricalObservable::Simple(readout_cast))
+        }
+        else {
+            if self.gender == KBusTerminalGender::Enby {
+                let readout = buf;
+                Ok(ElectricalObservable::Smart(readout))
+            }
+            else {unreachable!()} // there are only three genders
+        }
+    }
+}
+
+impl Setter for KBusTerm {
+    fn write(&mut self, data_to_write: bool, channel: ChannelInput) -> Result<(), String> {
+        let channel: usize = match channel {
+            ChannelInput::Channel(tc) => tc as usize - 1, // TermChannel starts at 1
+            ChannelInput::Index(idx) => idx as usize, // Index starts at 0
+        };
+    
+        if channel > (self.tx_data.as_ref().unwrap().len() as usize) {
+            return Err("Specified channel doesn't exist. Index out of bounds".into())
+        }
+        self.tx_data.as_mut().unwrap().set(channel, data_to_write);
+        Ok(())
+    }
+}
+
 // this struct shouldn't actually be populated manually, as all fields except tx_data and rx_data are stored in the
 // bk1120 coupler table (starting index 4000); TODO: automatically define E and K bus subdevices
 pub struct KBusSubDevice {
