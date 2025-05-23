@@ -346,7 +346,6 @@ fn opcua_shm(term_states: Arc<RwLock<TermStates>>) {
     // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
     let mut plc_data = LOCAL_PLC_DATA.lock().unwrap();
 
-    // let rd_guard = &*TERM_EL3024.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
     {   
         let rd_guard = term_states.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
         let guard = rd_guard.ebus_ai_terms[0].read().unwrap();
@@ -363,13 +362,18 @@ fn opcua_shm(term_states: Arc<RwLock<TermStates>>) {
         data.humidity = rh;
     }
 
-    let rd_guard = &*TERM_KL1889.read().expect("Acquire TERM_KL1889 read guard");
-    data.status = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch7))).unwrap().pick_simple().unwrap() as u32;
+    let ts_status = term_states.clone();
+    let rd_guard = ts_status.read().expect("get term_states read guard");
+    let rd_guard = rd_guard.kbus_terms[0].read().expect("get KL1889 read guard");
+    data.status = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch6))).unwrap().pick_simple().unwrap() as u32;
 
-    plc_data.area_1_lights = read_area_1_lights() as u32;
+    let ts_1 = term_states.clone();
+    let ts_2 = ts_1.clone();
+
+    plc_data.area_1_lights = read_area_1_lights(ts_1) as u32;
     data.area_1_lights = plc_data.area_1_lights;
 
-    plc_data.area_2_lights = read_area_2_lights(term_states) as u32;
+    plc_data.area_2_lights = read_area_2_lights(ts_2) as u32;
     data.area_2_lights = plc_data.area_2_lights;
 
     // Incoming to PLC: HMI command from shmem to local PLC state

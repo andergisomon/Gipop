@@ -2,7 +2,6 @@ use crate::term_cfg::*;
 use bitvec::prelude::*;
 use std::sync::{Arc, RwLock, LazyLock};
 
-// Let's start with simple E-bus terminals for now
 #[derive(Clone)]
 pub struct TermStates {
     pub kbus_terms: Vec<Arc<RwLock<KBusTerm>>>,

@@ -93,9 +93,9 @@ pub enum KBusTerminalGender {
 }
 
 // this is a parallel refactor of KBusSubDevice
-/// `hr_name`: Human-readable name. The 4 digits appended to KL: e.g. KLXXXX.
+/// `name`: Name as described here in page 57: https://download.beckhoff.com/download/document/io/bus-terminals/bk11x0_bk1250en.pdf
 /// 
-/// NB: `slot_idx_range` is a tuple of the form (begin, end)
+/// NB: `slot_idx_range` is a **CLOSED** interval represented by a tuple of the form (begin, end)
 #[derive(Clone)]
 pub struct KBusTerm {
     pub name: u16, // not human readable. K-bus terminals are not EtherCAT SubDevices so they don't store their exact human readable name (unless they're intelligent)

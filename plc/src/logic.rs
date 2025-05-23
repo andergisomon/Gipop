@@ -34,19 +34,22 @@ impl LocalPlcData {
 pub static LOCAL_PLC_DATA: LazyLock<Mutex<LocalPlcData>> = LazyLock::new(|| Mutex::new(LocalPlcData::new()));
 
 pub async fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>) {
-    enocean_sm(term_states);
+    let ts_enocean = term_states.clone();
+    enocean_sm(ts_enocean);
 
     let cmd = LOCAL_PLC_DATA.lock().unwrap();
 
     if cmd.area_1_lights_hmi_cmd == 2 {
         // log::info!("Area 1 Lights Command On");
-        write_all_channel_kl2889(true);
+        let ts_wr_all_kl2889_true = term_states.clone();
+        write_all_channel_kl2889(ts_wr_all_kl2889_true, true);
         reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
     }
 
     if cmd.area_1_lights_hmi_cmd == 1 {
         // log::info!("Area 1 Lights Command Off");
-        write_all_channel_kl2889(false);
+        let ts_wr_all_kl2889_false = term_states.clone();
+        write_all_channel_kl2889(ts_wr_all_kl2889_false, false);
         reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
     }
 }
@@ -54,6 +57,8 @@ pub async fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>) {
 fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
     let ts_a = Arc::clone(&term_states);
     let ts_b = ts_a.clone();
+    let ts_c = ts_a.clone();
+    let ts_d = ts_a.clone();
 
     if check_sb_bit(6) { // Error reported
         log::error!("{}", CnodeErrors::cnode_err_to_string(read_cnode()));
@@ -72,12 +77,12 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
 
             if (read_db3() & 0b11110000) == 0b01010000 {
                 log::info!("Rocker B, I pos. pressed");
-                write_all_channel_kl2889(true);
+                write_all_channel_kl2889(ts_c, true);
             }
 
             if (read_db3() & 0b11110000) == 0b01110000 {
                 log::info!("Rocker B, O pos. pressed");
-                write_all_channel_kl2889(false);
+                write_all_channel_kl2889(ts_d, false);
             }
 
             if (read_db3() & 0b11110000) == 0b00010000 {
@@ -102,18 +107,6 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
     }
 
     std::thread::sleep(Duration::from_millis(10)); // We're not controlling servos :)
-}
-
-// use fn write() implemented by Setter trait
-fn write_cb1(val: bool) {
-    let wr_guard = &mut *TERM_KL6581.write().expect("acquire KL6581 write lock");
-    wr_guard.write(val, ChannelInput::Index(1)).unwrap(); // CB.1
-}
-
-fn check_sb_bit(bit: usize) -> bool {
-    let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
-    let reading: BitVec<u8, Lsb0> = rd_guard.check(None).unwrap().expect("call check");
-    return reading.as_bitslice()[bit];
 }
 
 fn read_cnode() -> BitVec<u8, Lsb0> {
@@ -175,6 +168,15 @@ fn read_cb1() -> bool {
     return bits[1];
 }
 
+fn read_cb1_dyn(term_states: Arc<RwLock<TermStates>>) -> bool {
+    let rd_guard = term_states.write().expect("get term_states write guard");
+    let rd_guard = rd_guard.kbus_terms[2].write().expect("get KL6581 write guard");
+    let reading = rd_guard.read(None).unwrap();
+    let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
+    let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
+    return bits[1];
+}
+
 pub fn read_db3() -> u8 {
     let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
     let reading = rd_guard.read(None).unwrap();
@@ -183,10 +185,56 @@ pub fn read_db3() -> u8 {
     return bits[6*8..56].load::<u8>();
 }
 
-pub fn read_area_1_lights() -> u8 {
-    let rd_guard = &*TERM_KL2889.read().expect("Acquire TERM_KL2889 read guard");
+pub fn read_db3_dyn(term_states: Arc<RwLock<TermStates>>) -> u8 {
+    let rd_guard = term_states.write().expect("get term_states write guard");
+    let rd_guard = rd_guard.kbus_terms[2].write().expect("get KL6581 write guard");
+    let reading = rd_guard.read(None).unwrap();
+    let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
+    let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
+    return bits[6*8..56].load::<u8>();
+}
+
+fn buffer_full() -> bool {
+    let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
+    let reading = rd_guard.read(None).unwrap();
+    let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
+    let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
+    return bits[(12*8)+2]; // SB.2
+}
+
+fn buffer_full_dyn(term_states: Arc<RwLock<TermStates>>) -> bool {
+    let rd_guard = term_states.write().expect("get term_states write guard");
+    let rd_guard = rd_guard.kbus_terms[2].write().expect("get KL6581 write guard");
+    let reading = rd_guard.read(None).unwrap();
+    let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
+    let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
+    return bits[(12*8)+2]; // SB.2
+}
+
+// use fn write() implemented by Setter trait
+fn write_cb1(val: bool) {
+    let wr_guard = &mut *TERM_KL6581.write().expect("acquire KL6581 write lock");
+    wr_guard.write(val, ChannelInput::Index(1)).unwrap(); // CB.1
+}
+
+fn write_cb1_dyn(term_states: Arc<RwLock<TermStates>>, val: bool) {
+    let wr_guard = term_states.write().expect("get term_states write guard");
+    let mut wr_guard = wr_guard.kbus_terms[2].write().expect("get KL6581 write guard");
+    wr_guard.write(val, ChannelInput::Index(1)).unwrap(); // CB.1
+}
+
+fn check_sb_bit(bit: usize) -> bool {
+    let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
+    let reading: BitVec<u8, Lsb0> = rd_guard.check(None).unwrap().expect("call check");
+    return reading.as_bitslice()[bit];
+}
+
+pub fn read_area_1_lights(term_states: Arc<RwLock<TermStates>>) -> u8 {
+    let rd_guard = term_states.read().expect("get term_states read guard");
+    let rd_guard = rd_guard.kbus_terms[1].write().expect("acquire KL2889 dyn heap write lock");
+
     let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
-    return reading.pick_simple().unwrap();
+    return reading.pick_simple().unwrap()
 }
 
 pub fn read_area_2_lights(term_states: Arc<RwLock<TermStates>>) -> u8 {
@@ -203,9 +251,11 @@ pub fn read_area_2_lights(term_states: Arc<RwLock<TermStates>>) -> u8 {
     return reading.pick_simple().unwrap()
 }
 
-fn write_all_channel_kl2889(val: bool) {
-    let wr_guard = &mut *TERM_KL2889.write().expect("acquire KL2889 write lock");
-    for idx in 0..KL2889_IMG_LEN_BITS { // All 16 bits of KL2889
+fn write_all_channel_kl2889(term_states: Arc<RwLock<TermStates>>, val: bool) {
+    let wr_guard = term_states.write().expect("get term_states write guard");
+    let mut wr_guard = wr_guard.kbus_terms[1].write().expect("get KL2889 write guard");
+
+    for idx in 0..wr_guard.size_in_bits { // All 16 bits of KL2889
         wr_guard.write(val, ChannelInput::Index(idx)).unwrap();
     }
 }
@@ -223,14 +273,6 @@ fn write_all_channel_el2889(val: bool, term_states: Arc<RwLock<TermStates>>) {
     for idx in 0..wr_guard.num_of_channels {
         wr_guard.write(val, ChannelInput::Index(idx)).unwrap();
     }
-}
-
-fn buffer_full() -> bool {
-    let rd_guard = &*TERM_KL6581.read().expect("Acquire TERM_KL6581 read guard");
-    let reading = rd_guard.read(None).unwrap();
-    let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
-    let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
-    return bits[(12*8)+2]; // SB.2
 }
 
 // Very important. Resets hmi cmd in shared mem so that the old value doesn't create conflict with
