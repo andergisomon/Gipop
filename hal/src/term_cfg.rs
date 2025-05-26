@@ -144,7 +144,15 @@ impl KBusTerm {
     pub fn refresh_term(&self, dst: &mut BitSlice<u8, Lsb0>) {
         let (slot_idx_begin, slot_idx_end) = self.slot_idx_range;
         let dst = &mut dst[slot_idx_begin as usize .. (slot_idx_end + 1) as usize];
-        let len = self.tx_data.as_ref().unwrap().len();
+        let len = self.rx_data.as_ref().unwrap().len();
+
+        if dst.len() != len as usize {
+            panic!(
+                "rx_data len {} does not match process image {}",
+                dst.len(),
+                len
+            );
+        }
 
         if self.gender == KBusTerminalGender::Output {
             for (idx, bit) in self.rx_data.as_ref().unwrap().iter().enumerate() {
@@ -153,18 +161,6 @@ impl KBusTerm {
         }
 
         if self.gender == KBusTerminalGender::Enby {
-            // for (idx, bit) in self.tx_data.as_ref().unwrap().iter().enumerate() {
-            //     if idx == dst.len() {break} // TODO: fix issue with too big tx_data when instantiated in PRE-OP
-            //     dst.set(idx, *bit);
-            // }
-
-            // At least some progress when its self.tx_data instead of rx_data???
-            // for (idx, bit) in self.tx_data.as_ref().unwrap().iter().enumerate() {
-            //     if idx == dst.len() {break} // TODO: fix issue with too big rx_data when instantiated in PRE-OP
-            //     dst.set(idx, *bit);
-            // }
-
-            // Maybe this will work?
             for i in 0..len {
                 dst.set(i, self.rx_data.as_deref().unwrap()[i]);
             }
@@ -204,7 +200,7 @@ impl KBusTerm {
                 for (idx, bit) in input_bits.iter().enumerate() {
                     self.tx_data.as_mut().unwrap().set(idx, *bit);
                 }
-                log::warn!("input_bits: {:?}", input_bits);
+                // log::warn!("input_bits: {:?}", input_bits);
             }
 
             if output_bits != None {

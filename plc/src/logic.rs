@@ -78,12 +78,13 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
         let check_sb_1 = check_sb_bit_dyn(ts_check_sb_1, 1);
         let read_cb1 = read_cb1_dyn(ts_cb1);
 
-        log::info!("CB1: {}, SB1: {}", read_cb1, check_sb_1);
+        // log::info!("CB1: {}, SB1: {}", read_cb1, check_sb_1);
 
         if read_cb1 != check_sb_1 {
 
             let ts_db3 = term_states.clone();
             let db3 = read_db3_dyn(ts_db3);
+            log::warn!("DB3: {:08b}", db3);
 
             if (db3 & 0b11110000) == 0b01010000 {
                 log::info!("Rocker B, I pos. pressed");
@@ -104,13 +105,12 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
                 log::info!("Rocker A, 0 pos. pressed");
                 write_all_channel_el2889(false, ts_b);
             }
-            // log::info!("sb1 through check: {}", check_sb1());
             // write_cb1(!check_sb_bit(1)); // Very important. Tells KL6581 we've fetched the packet.
             let ts_check_sb_1 = term_states.clone();
             let check_sb_1 = check_sb_bit_dyn(ts_check_sb_1, 1);
 
             let ts_wr_cb1 = term_states.clone();
-            write_cb1_dyn(ts_wr_cb1, !check_sb_1);
+            write_cb1_dyn(ts_wr_cb1, check_sb_1); // Very important. Tells KL6581 we've fetched the packet.
         }
         else {
             // log::info!("CB.1 == SB.1");
@@ -213,7 +213,8 @@ pub fn read_db3_dyn(term_states: Arc<RwLock<TermStates>>) -> u8 {
     let reading = rd_guard.read(None).unwrap();
     let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
     let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
-    return bits[6*8..56].load::<u8>();
+    return bits[6*8+96..56+96].load::<u8>();
+    // return bits[8*8..72].load::<u8>();
 }
 
 fn buffer_full() -> bool {
@@ -224,13 +225,18 @@ fn buffer_full() -> bool {
     return bits[(12*8)+2]; // SB.2
 }
 
+// fn buffer_full_dyn(term_states: Arc<RwLock<TermStates>>) -> bool {
+//     let rd_guard = term_states.write().expect("get term_states write guard");
+//     let rd_guard = rd_guard.kbus_terms[2].write().expect("get KL6581 write guard");
+//     let reading = rd_guard.read(None).unwrap();
+//     let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
+//     let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
+//     return bits[(12*8)+2]; // SB.2
+// }
+
 fn buffer_full_dyn(term_states: Arc<RwLock<TermStates>>) -> bool {
-    let rd_guard = term_states.write().expect("get term_states write guard");
-    let rd_guard = rd_guard.kbus_terms[2].write().expect("get KL6581 write guard");
-    let reading = rd_guard.read(None).unwrap();
-    let value: BitVec<u8, Lsb0> = reading.pick_smart().unwrap(); // 192 bits = 24 bytes
-    let bits: &BitSlice<u8, Lsb0> = value.as_bitslice();
-    return bits[(12*8)+2]; // SB.2
+    let ts = term_states.clone();
+    check_sb_bit_dyn(ts, 2)
 }
 
 // use fn write() implemented by Setter trait

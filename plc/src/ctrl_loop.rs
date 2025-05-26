@@ -32,7 +32,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
         pdu_loop,
         Timeouts { // BK coupler is a bit sluggish
             state_transition: Duration::from_millis(20_000), // Other values that seem to work: 5000, 15_000
-            pdu: Duration::from_micros(30_000), // Can try 50_000
+            pdu: Duration::from_micros(50_000), // Can try 50_000
             eeprom: Duration::from_millis(10), // Can try 100
             wait_loop_delay: Duration::from_millis(2),
             mailbox_echo: Duration::from_millis(600), // Set to 100 in TwinCAT
@@ -212,7 +212,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             let current = ch1_reading.pick_current().unwrap();
             let humd = ((current * 493.0)/1000.0 + 1.022) * 5.0; // offset can be calculated delta / 5.0
 
-            log::info!("EL3024 in dyn heap value: {}", humd);
+            // log::info!("EL3024 in dyn heap value: {}", humd);
         }
 
         // Physical Input Terminal --> Program Code Input Terminal Object
@@ -343,14 +343,14 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
             let ch6_reading = peek.read(Some(ChannelInput::Channel(TermChannel::Ch6))).unwrap();
             let res = ch6_reading.pick_simple().unwrap();
-            log::info!("KL1889 Channel 6 from dyn heap: {}", res)
+            // log::info!("KL1889 Channel 6 from dyn heap: {}", res)
         }
 
-        {
-            let peek = term_states.read().expect("get term_states read guard");
-            let mut peek = peek.kbus_terms[1].write().expect("get KL1889 from dyn heap read lock");
-            _ = peek.write(true, ChannelInput::Channel(TermChannel::Ch12));
-        }
+        // {
+        //     let peek = term_states.read().expect("get term_states read guard");
+        //     let mut peek = peek.kbus_terms[1].write().expect("get KL1889 from dyn heap read lock");
+        //     _ = peek.write(true, ChannelInput::Channel(TermChannel::Ch12));
+        // }
 
     }
 
