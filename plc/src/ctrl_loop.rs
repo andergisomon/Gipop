@@ -2,19 +2,17 @@ use ethercrab::{
     std::ethercat_now, MainDevice, MainDeviceConfig, PduStorage, RetryBehaviour, SubDeviceGroup, SubDeviceRef, Timeouts
 };
 use async_io::Timer;
-use memmap2::{Mmap, MmapMut};
 use std::{
-    fs::OpenOptions, ops::Deref, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex, RwLock}, time::Duration
+    fs::OpenOptions, sync::{atomic::{AtomicBool, Ordering}, Arc, RwLock}, time::Duration
 };
 use bitvec::prelude::*;
 use anyhow::Result;
-use enum_iterator::all;
 
 // For getting read/write locks to terminal objects in PLC memory
 use hal::io_defs::*;
 use hal::term_cfg::*;
 use crate::logic::*; // Business logic execution; Calls to methods to accomplish business logic
-use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
+use crate::shared::{SHM_PATH, map_shared_memory, read_data, write_data};
 
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
@@ -32,7 +30,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
         pdu_loop,
         Timeouts { // BK coupler is a bit sluggish
             state_transition: Duration::from_millis(20_000), // Other values that seem to work: 5000, 15_000
-            pdu: Duration::from_micros(50_000), // Can try 50_000
+            pdu: Duration::from_micros(20_000), // Can try 50_000
             eeprom: Duration::from_millis(10), // Can try 100
             wait_loop_delay: Duration::from_millis(2),
             mailbox_echo: Duration::from_millis(600), // Set to 100 in TwinCAT
@@ -221,7 +219,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             let input_bits = input.view_bits::<Lsb0>();
         
             if subdevice.name() == "EL1889" {
-                el1889_handler(&*TERM_EL1889, input_bits); // TODO purge static allocation
 
                 {
                     let guard =
@@ -235,10 +232,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             }
 
             if subdevice.name() == "EL3024" {
-                for channel in all::<TermChannel>() {
-                    if channel as u8 > EL3024_NUM_CHANNELS { break; }
-                    el3024_handler(&*TERM_EL3024, input_bits, channel);
-                }
 
                 {
                     let guard =
@@ -252,10 +245,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             }
 
             if subdevice.name() == "BK1120" {
-                // View only KL6581 portion of the input process image (bytes 2-13)
-                // indexing is by bit in here, not by byte
-                kl6581_input_handler(&*TERM_KL6581, &input_bits[16..112]);
-                // kl1889_handler(&*TERM_KL1889, &input_bits[112..128]);
 
                 {
                     let guard =
@@ -286,7 +275,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             let output_bits = output.view_bits_mut::<Lsb0>();
 
             if subdevice.name() == "EL2889" {
-                el2889_handler(output_bits, &*TERM_EL2889); // TODO purge static allocation
 
                 {
                     let guard = 
@@ -300,10 +288,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                 }
             }
             if subdevice.name() == "BK1120" {
-                // View only KL6581 portion of the output process image (bytes 2-13)
-                // indexing is by bit in here, not by byte.
-                kl6581_output_handler(&mut output_bits[16..112], &*TERM_KL6581);
-                // kl2889_handler(&mut output_bits[112..128], &*TERM_KL2889);
 
                 {
                     let guard = 
@@ -325,15 +309,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                     guard.refresh_term(output_bits);
                 }
 
-                // { // update KL6581 RxPDO feedback
-                //     let guard =
-                //     term_states.read().expect("get term_states read guard");
-
-                //     // kbus_terms are indexed based on physical location from BK coupler
-                //     let mut guard = guard.kbus_terms[2].write()
-                //     .expect("get BK1120/KL6581 from dyn heap read lock");
-                //     guard.refresh_ctrlr(None, Some(output_bits));
-                // }
             }
         }
 
@@ -345,12 +320,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             let res = ch6_reading.pick_simple().unwrap();
             // log::info!("KL1889 Channel 6 from dyn heap: {}", res)
         }
-
-        // {
-        //     let peek = term_states.read().expect("get term_states read guard");
-        //     let mut peek = peek.kbus_terms[1].write().expect("get KL1889 from dyn heap read lock");
-        //     _ = peek.write(true, ChannelInput::Channel(TermChannel::Ch12));
-        // }
 
     }
 
