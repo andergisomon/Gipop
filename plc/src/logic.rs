@@ -31,26 +31,26 @@ impl LocalPlcData {
     }
 }
 
-pub static LOCAL_PLC_DATA: LazyLock<Mutex<LocalPlcData>> = LazyLock::new(|| Mutex::new(LocalPlcData::new()));
+pub static LOCAL_PLC_DATA: LazyLock<RwLock<LocalPlcData>> = LazyLock::new(|| RwLock::new(LocalPlcData::new()));
 
-pub async fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>) {
-    let ts_enocean = term_states.clone();
-    enocean_sm(ts_enocean);
+pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>) {
 
-    let cmd = LOCAL_PLC_DATA.lock().unwrap();
+    {
+        enocean_sm(Arc::clone(&term_states));
 
-    if cmd.area_1_lights_hmi_cmd == 2 {
-        // log::info!("Area 1 Lights Command On");
-        let ts_wr_all_kl2889_true = term_states.clone();
-        write_all_channel_kl2889(ts_wr_all_kl2889_true, true);
-        reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
-    }
+        let cmd = LOCAL_PLC_DATA.read().unwrap();
 
-    if cmd.area_1_lights_hmi_cmd == 1 {
-        // log::info!("Area 1 Lights Command Off");
-        let ts_wr_all_kl2889_false = term_states.clone();
-        write_all_channel_kl2889(ts_wr_all_kl2889_false, false);
-        reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
+        if cmd.area_1_lights_hmi_cmd == 2 {
+            // log::info!("Area 1 Lights Command On");
+            write_all_channel_kl2889(Arc::clone(&term_states), true);
+            reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
+        }
+
+        if cmd.area_1_lights_hmi_cmd == 1 {
+            // log::info!("Area 1 Lights Command Off");
+            write_all_channel_kl2889(Arc::clone(&term_states), false);
+            reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
+        }
     }
 }
 
@@ -115,8 +115,6 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
             }
         }
     }
-
-    std::thread::sleep(Duration::from_millis(10)); // We're not controlling servos :)
 }
 
 fn read_cnode(term_states: Arc<RwLock<TermStates>>) -> BitVec<u8, Lsb0> {
@@ -261,4 +259,8 @@ fn reset_hmi_cmd() {
     let mut data = read_data(&mmap);
     data.area_1_lights_hmi_cmd = 0;
     write_data(&mut mmap, data);
+}
+
+pub fn get_temp() {
+    
 }
