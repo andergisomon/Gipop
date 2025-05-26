@@ -168,30 +168,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
         group.tx_rx(&maindevice).await.expect("TX/RX");
 
-        // {
-        //     let peek_num_of_channels 
-        //     = term_states.read()
-        //     .expect("get term_states read guard");
-
-        //     let peek_num_of_channels = peek_num_of_channels.ebus_di_terms[0].read()
-        //     .expect("get EL1889 from dyn heap read lock");
-
-        //     // log::info!("EL1889 in dyn heap value: {:b}", peek_num_of_channels.values);
-        // }
-
-        // {
-        //     let peek_num_of_channels = term_states.read().expect("get term_states read guard");
-
-        //     let peek_num_of_channels = peek_num_of_channels.ebus_ai_terms[0].read()
-        //     .expect("get EL1889 from dyn heap read lock");
-
-        //     let ch1_reading = peek_num_of_channels.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
-        //     let current = ch1_reading.pick_current().unwrap();
-        //     let humd = ((current * 493.0)/1000.0 + 1.022) * 5.0; // offset can be calculated delta / 5.0
-
-        //     // log::info!("EL3024 in dyn heap value: {}", humd);
-        // }
-
         // Physical Input Terminal --> Program Code Input Terminal Object
         for subdevice in group.iter(&maindevice) {
             let input = subdevice.inputs_raw();
@@ -290,15 +266,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
             }
         }
-
-        // {
-        //     let peek = term_states.read().expect("get term_states read guard");
-        //     let peek = peek.kbus_terms[0].read().expect("get KL1889 from dyn heap read lock");
-
-        //     let ch6_reading = peek.read(Some(ChannelInput::Channel(TermChannel::Ch6))).unwrap();
-        //     let res = ch6_reading.pick_simple().unwrap();
-        //     // log::info!("KL1889 Channel 6 from dyn heap: {}", res)
-        // }
 
     }
 

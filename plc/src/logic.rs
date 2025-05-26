@@ -260,7 +260,3 @@ fn reset_hmi_cmd() {
     data.area_1_lights_hmi_cmd = 0;
     write_data(&mut mmap, data);
 }
-
-pub fn get_temp() {
-    
-}

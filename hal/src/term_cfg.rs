@@ -329,7 +329,6 @@ impl Getter for DITerm {
     }
 }
 
-
 pub struct DOTerm {
     pub values: BitVec<u8, Lsb0>,
     pub num_of_channels: u8,
