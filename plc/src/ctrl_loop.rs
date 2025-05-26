@@ -206,10 +206,10 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                     term_states.read().expect("get term_states read guard");
 
                     // kbus_terms are indexed based on physical location from BK coupler
-                    let mut guard = guard.kbus_terms[0].write()
+                    let mut kl1889 = guard.kbus_terms[0].write()
                     .expect("get BK1120/KL1889 from dyn heap read lock");
 
-                    guard.refresh_ctrlr(Some(input_bits), None);
+                    kl1889.refresh_ctrlr(Some(input_bits), None);
                 }
 
                 {
@@ -217,9 +217,9 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                     term_states.read().expect("get term_states read guard");
 
                     // kbus_terms are indexed based on physical location from BK coupler
-                    let mut guard = guard.kbus_terms[2].write()
+                    let mut kl6581 = guard.kbus_terms[2].write()
                     .expect("get BK1120/KL6581 from dyn heap read lock");
-                    guard.refresh_ctrlr(Some(input_bits), None);
+                    kl6581.refresh_ctrlr(Some(input_bits), None);
                 }
             }
         }
@@ -248,10 +248,10 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                     let guard = 
                     term_states.read().expect("get term_states read guard");
 
-                    let guard = guard.kbus_terms[1].read()
+                    let kl2889 = guard.kbus_terms[1].read()
                     .expect("get BK1120/KL2889 from dyn heap read lock");
 
-                    guard.refresh_term(output_bits);
+                    kl2889.refresh_term(output_bits);
                 }
 
                 {
@@ -259,14 +259,12 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                     term_states.read().expect("get term_states read guard");
 
                     // kbus_terms are indexed based on physical location from BK coupler
-                    let guard = guard.kbus_terms[2].write()
+                    let kl6581 = guard.kbus_terms[2].write()
                     .expect("get BK1120/KL6581 from dyn heap read lock");
-                    guard.refresh_term(output_bits);
+                    kl6581.refresh_term(output_bits);
                 }
-
             }
         }
-
     }
 
     let group = group.into_safe_op(&maindevice).await.expect("OP -> SAFE-OP");
@@ -310,8 +308,8 @@ fn opcua_shm(term_states: Arc<RwLock<TermStates>>) {
 
         let ts_status = term_states.clone();
         let rd_guard = ts_status.read().expect("get term_states read guard");
-        let rd_guard = rd_guard.kbus_terms[0].read().expect("get KL1889 read guard");
-        data.status = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch6))).unwrap().pick_simple().unwrap() as u32;
+        let kl1889 = rd_guard.kbus_terms[0].read().expect("get KL1889 read guard");
+        data.status = kl1889.read(Some(ChannelInput::Channel(TermChannel::Ch6))).unwrap().pick_simple().unwrap() as u32;
 
         let ts_1 = term_states.clone();
         let ts_2 = ts_1.clone();
@@ -325,99 +323,5 @@ fn opcua_shm(term_states: Arc<RwLock<TermStates>>) {
         // Incoming to PLC: HMI command from shmem to local PLC state
         plc_data.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
         write_data(&mut mmap, data);
-    }
-}
-
-/// Parses K-bus terminals and pushes them into the heap, but with `slot_idx_range` initialized to (0, 0)
-fn parse_term(term_name: u16, term_states: Arc<RwLock<TermStates>>) {
-    let guard = term_states.clone();
-    let mut guard = guard.write().expect("get term_states write guard");
-
-    log::warn!("K-bus term name: {}", term_name);
-
-    // KL6581 is guaranteed Intelligent
-    if term_name == 6581 {
-        guard.kbus_terms
-        .push(
-            Arc::new(
-                RwLock::new(
-                    KBusTerm::new(
-                        term_name,
-                        true,
-                        192,
-                        KBusTerminalGender::Enby,
-                        (0, 0)
-                ))));
-    }
-
-    let term_name_bits: BitVec<u16, Lsb0> = BitVec::from_element(term_name as u16);
-
-    // If Simple Terminal
-    if term_name_bits[15] {
-        let size_in_bits: u8 = term_name_bits[7..15].load_le();
-        log::warn!("K-bus term size in bits: {}", size_in_bits);
-
-        // If Input Terminal
-        if term_name_bits[0] && !term_name_bits[1] { 
-            guard.kbus_terms
-            .push(
-                Arc::new(
-                    RwLock::new(
-                        KBusTerm::new(
-                            term_name,
-                            false,
-                            size_in_bits / 2,
-                            KBusTerminalGender::Input,
-                            (0, 0)
-                ))));
-        }
-
-        // If Output Terminal
-        if !term_name_bits[0] && term_name_bits[1] { 
-            guard.kbus_terms
-            .push(
-                Arc::new(
-                    RwLock::new(
-                        KBusTerm::new(
-                            term_name,
-                            false,
-                            size_in_bits / 2,
-                            KBusTerminalGender::Output,
-                            (0, 0)
-                ))));
-        }
-    }
-
-    log::warn!("Total K-bus terminals parsed: {}", guard.kbus_terms.len());
-
-}
-
-// Determine and set the correct `slot_idx_range` occupied by each K-bus terminal in the BK coupler input/output images
-fn set_slot_idx_range(term_states: Arc<RwLock<TermStates>>) {
-    let guard = term_states.clone();
-    let guard = guard.write().expect("get term_states write guard");
-    let terms = &guard.kbus_terms;
-
-    // This implementation is incomplete. It does not cover the following cases:
-    // - Multiple instances of the same terminal
-    // - Non-contiguous terminal layout (from mixed Simple and Terminal physical layout -> cluster Simple/Terminal separately in memory).
-    // TODO: KBusTerm (any terminal instance, really) should have a UID
-    for (_pos, term) in terms.iter().enumerate() {
-        let mut term_lock = term.write().expect("get K-bus term write guard");
-
-        // setting slot index ranges should be conditioned on UID instead of non-unique attributes like name and gender
-        if term_lock.name == 6581 {
-            assert!(term_lock.intelligent && term_lock.name == 6581); // Panic if KL6581 is for some reason not Intelligent
-            term_lock.slot_idx_range = (16, 15+(12*8));
-        }
-
-        if term_lock.gender == KBusTerminalGender::Input {
-            term_lock.slot_idx_range = (112, 112+15);
-        }
-
-        if term_lock.gender == KBusTerminalGender::Output {
-            term_lock.slot_idx_range = (112, 112+15);
-        }
-
     }
 }
