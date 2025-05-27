@@ -151,7 +151,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                 counter = counter.wrapping_add(1);
 
                 let jitter = now.duration_since(next_time);
-                println!("Jitter: {:?} {}", jitter, if jitter > Duration::ZERO { "(late)" } else { "(early)" });
+                log::warn!("Jitter: {:?} {}", jitter, if jitter > Duration::ZERO { "(late)" } else { "(early)" });
 
                 next_time += cycle;
                 let now = Instant::now();
@@ -177,11 +177,11 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
     // Enter the primary loop
     loop {
-        if shutdown.load(Ordering::Relaxed) {
+        if Arc::clone(&shutdown).load(Ordering::Relaxed) {
             log::info!("Shutting down...");
             break;
         }
-        // smol::Timer::after(Duration::from_millis(10)).await; // We're not controlling servos :)
+        smol::Timer::after(Duration::from_millis(10)).await; // We're not controlling servos :)
 
         group.tx_rx(&maindevice).await.expect("TX/RX");
 

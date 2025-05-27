@@ -1,5 +1,6 @@
 /hal/target
 /opcua/target
+/modbus/target
 
 # Added by cargo
 

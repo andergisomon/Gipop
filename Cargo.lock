@@ -767,6 +767,7 @@ dependencies = [
  "enum-iterator",
  "env_logger",
  "ethercrab",
+ "futures-lite",
  "hal",
  "log",
  "memmap2",
