@@ -4,9 +4,22 @@ use hal::term_cfg::*;
 use hal::enocean_driver::*;
 use std::sync::{Arc, RwLock, LazyLock};
 use std::fs::OpenOptions;
+use std::time::Duration;
 use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
+
+pub struct Gvl {
+    pub blinkerlamps: bool
+}
+
+impl Gvl {
+    fn new() -> Self {
+        Self {
+            blinkerlamps: false
+        }
+    }
+}
 
 pub struct LocalPlcData {
     pub temperature: f32,
@@ -31,8 +44,9 @@ impl LocalPlcData {
 }
 
 pub static LOCAL_PLC_DATA: LazyLock<RwLock<LocalPlcData>> = LazyLock::new(|| RwLock::new(LocalPlcData::new()));
+pub static GVL: LazyLock<RwLock<Gvl>> = LazyLock::new(|| RwLock::new(Gvl::new()));
 
-pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>) {
+pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
 
     {
         enocean_sm(Arc::clone(&term_states));
@@ -49,6 +63,18 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>) {
             // log::info!("Area 1 Lights Command Off");
             write_all_channel_kl2889(Arc::clone(&term_states), false);
             reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
+        }
+
+        let blink = GVL.read().unwrap().blinkerlamps;
+        if blink {
+            if counter % 5 == 0 {
+                if read_area_1_lights(Arc::clone(&term_states)) == 1 {
+                    write_all_channel_kl2889(Arc::clone(&term_states), false);
+                }
+                else {
+                    write_all_channel_kl2889(Arc::clone(&term_states), true);   
+                }
+            }
         }
     }
 }
@@ -83,11 +109,13 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
 
             if (db3 & 0b11110000) == 0b01010000 {
                 log::info!("Rocker B, I pos. pressed");
-                write_all_channel_kl2889(Arc::clone(&term_states), true);
+                GVL.write().unwrap().blinkerlamps = true;
+                // write_all_channel_kl2889(Arc::clone(&term_states), true);
             }
 
             if (db3 & 0b11110000) == 0b01110000 {
                 log::info!("Rocker B, O pos. pressed");
+                GVL.write().unwrap().blinkerlamps = false;
                 write_all_channel_kl2889(Arc::clone(&term_states), false);
             }
 
@@ -105,7 +133,6 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
             write_cb1(Arc::clone(&term_states), check_sb_1); // Very important. Tells KL6581 we've fetched the packet.
         }
         else {
-            // log::info!("CB.1 == SB.1");
             let buffer_full = buffer_full(Arc::clone(&term_states));
             if buffer_full {
                 log::info!("Buffer full");
@@ -118,47 +145,35 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
 
 pub fn read_area_1_lights(term_states: Arc<RwLock<TermStates>>) -> u8 {
     let rd_guard = term_states.read().expect("get term_states read guard");
-    let rd_guard = rd_guard.kbus_terms[1].write().expect("acquire KL2889 dyn heap write lock");
+    let kl2889 = rd_guard.kbus_terms[1].write().expect("acquire KL2889 dyn heap write lock");
 
-    let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+    let reading = kl2889.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
     return reading.pick_simple().unwrap()
 }
 
 pub fn read_area_2_lights(term_states: Arc<RwLock<TermStates>>) -> u8 {
-    let rd_guard =
-    term_states.read()
-    .expect("get term_states read guard");
+    let rd_guard = term_states.read().expect("get term_states read guard");
+    let el2889 = rd_guard.ebus_do_terms[0].write().expect("acquire EL2889 dyn heap write lock");
 
-    let rd_guard =
-    rd_guard.ebus_do_terms[0]
-    .write()
-    .expect("acquire EL2889 dyn heap write lock");
-
-    let reading = rd_guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+    let reading = el2889.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
     return reading.pick_simple().unwrap()
 }
 
 fn write_all_channel_kl2889(term_states: Arc<RwLock<TermStates>>, val: bool) {
     let wr_guard = term_states.write().expect("get term_states write guard");
-    let mut wr_guard = wr_guard.kbus_terms[1].write().expect("get KL2889 write guard");
+    let mut kl2889 = wr_guard.kbus_terms[1].write().expect("get KL2889 write guard");
 
-    for idx in 0..wr_guard.size_in_bits { // All 16 bits of KL2889
-        wr_guard.write(val, ChannelInput::Index(idx)).unwrap();
+    for idx in 0..kl2889.size_in_bits { // All 16 bits of KL2889
+        kl2889.write(val, ChannelInput::Index(idx)).unwrap();
     }
 }
 
 fn write_all_channel_el2889(val: bool, term_states: Arc<RwLock<TermStates>>) {
-    let wr_guard =
-    term_states.read()
-    .expect("get term_states read guard");
+    let wr_guard = term_states.read().expect("get term_states read guard");
+    let mut el2889 = wr_guard.ebus_do_terms[0].write().expect("acquire EL2889 dyn heap write lock");
 
-    let mut wr_guard =
-    wr_guard.ebus_do_terms[0]
-    .write()
-    .expect("acquire EL2889 dyn heap write lock");
-
-    for idx in 0..wr_guard.num_of_channels {
-        wr_guard.write(val, ChannelInput::Index(idx)).unwrap();
+    for idx in 0..el2889.num_of_channels {
+        el2889.write(val, ChannelInput::Index(idx)).unwrap();
     }
 }
 

@@ -2,7 +2,8 @@ use ethercrab::{
     std::ethercat_now, MainDevice, MainDeviceConfig, PduStorage, RetryBehaviour, SubDeviceGroup, SubDeviceRef, Timeouts
 };
 use std::{
-    fs::OpenOptions, sync::{atomic::{AtomicBool, Ordering}, Arc, RwLock}, time::Duration
+    num::Wrapping,
+    fs::OpenOptions, sync::{atomic::{AtomicBool, Ordering}, Arc, RwLock}, time::{Duration, Instant}
 };
 use bitvec::prelude::*;
 use anyhow::Result;
@@ -137,12 +138,28 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
     let ts = term_states.clone();
 
-    // PLC logic entry point. Cycle time watchdog should be here (TODO)
+    // PLC logic entry point. Cycle time watchdog should be here
+    let mut counter: u64 = 0;
+    let cycle = Duration::from_millis(10);
+    let mut next_time = Instant::now() + cycle;
+
     smol::spawn(async move 
         {
             loop {
-                smol::Timer::after(Duration::from_millis(10)).await; // We're not controlling servos :)
-                plc_execute_logic(ts.clone());
+                let now = Instant::now();
+                plc_execute_logic(ts.clone(), counter.clone());
+                counter = counter.wrapping_add(1);
+
+                let jitter = now.duration_since(next_time);
+                println!("Jitter: {:?} {}", jitter, if jitter > Duration::ZERO { "(late)" } else { "(early)" });
+
+                next_time += cycle;
+                let now = Instant::now();
+                if next_time > now {
+                    smol::Timer::at(next_time).await;
+                } else {
+                    log::warn!("Missed cycle deadline, skipping sleep");
+                }
             }
         }
     ).detach();
@@ -164,7 +181,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             log::info!("Shutting down...");
             break;
         }
-        smol::Timer::after(Duration::from_millis(10)).await; // We're not controlling servos :)
+        // smol::Timer::after(Duration::from_millis(10)).await; // We're not controlling servos :)
 
         group.tx_rx(&maindevice).await.expect("TX/RX");
 
