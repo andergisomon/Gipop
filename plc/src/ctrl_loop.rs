@@ -3,7 +3,8 @@ use ethercrab::{
 };
 use std::{
     num::Wrapping,
-    fs::OpenOptions, sync::{atomic::{AtomicBool, Ordering}, Arc, RwLock}, time::{Duration, Instant}
+    fs::{File, OpenOptions}, sync::{atomic::{AtomicBool, Ordering}, Arc, RwLock, LazyLock, Mutex}, time::{Duration, Instant},
+    io::Write
 };
 use bitvec::prelude::*;
 use anyhow::Result;
@@ -13,6 +14,35 @@ use hal::io_defs::*;
 use hal::term_cfg::*;
 use crate::logic::*; // Business logic execution; Calls to methods to accomplish business logic
 use crate::shared::{SHM_PATH, map_shared_memory, read_data, write_data};
+
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+struct JitterSample {
+    cycle: u64,
+    jitter: i64, // signed to show early/late
+}
+
+pub static JITTER_BUF: LazyLock<Mutex<Vec<JitterSample>>> = LazyLock::new(|| Mutex::new(Vec::with_capacity(10_000)));
+
+pub fn start_jitter_exporter() {
+    smol::spawn(async {
+        // Wait N seconds before exporting
+        smol::Timer::after(Duration::from_secs(120)).await;
+
+        let filename = "jitter_export.csv";
+        let file = File::create(filename).expect("Unable to create CSV file");
+        let mut writer = csv::Writer::from_writer(file);
+
+        if let Ok(buf) = JITTER_BUF.lock() {
+            for sample in buf.iter() {
+                writer.serialize(sample).expect("Write failed");
+            }
+        }
+
+        writer.flush().expect("Flush failed");
+        println!("✅ Jitter data exported to {}", filename);
+    }).detach();
+}
+
 
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
@@ -142,18 +172,30 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
     let mut counter: u64 = 0;
     let cycle = Duration::from_millis(10);
     let mut next_time = Instant::now() + cycle;
+    let start_bench= Instant::now();
 
     smol::spawn(async move 
         {
+            start_jitter_exporter();
             loop {
                 let now = Instant::now();
-                plc_execute_logic(ts.clone(), counter.clone());
-                counter = counter.wrapping_add(1);
+
+                if now.duration_since(start_bench) == Duration::from_secs(120) {
+                    break;
+                }
 
                 let jitter = now.duration_since(next_time);
-                log::warn!("Jitter: {:?} {}", jitter, if jitter > Duration::ZERO { "(late)" } else { "(early)" });
+                if let Ok(mut buf) = JITTER_BUF.try_lock() {
+                    buf.push(JitterSample {
+                        cycle: counter,
+                        jitter: jitter.as_micros() as i64,
+                    });
+                }
 
+                plc_execute_logic(ts.clone(), counter.clone());
+                counter = counter.wrapping_add(1);
                 next_time += cycle;
+    
                 let now = Instant::now();
                 if next_time > now {
                     smol::Timer::at(next_time).await;
@@ -181,7 +223,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             log::info!("Shutting down...");
             break;
         }
-        smol::Timer::after(Duration::from_millis(10)).await; // We're not controlling servos :)
+        smol::Timer::after(Duration::from_millis(8)).await; // We're not controlling servos :)
 
         group.tx_rx(&maindevice).await.expect("TX/RX");
 

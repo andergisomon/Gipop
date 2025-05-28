@@ -33,13 +33,8 @@ fn main() { // opcua setup + config + shutdown should be done here
         );
 
         match set_priority_result {
-            Ok(_) => log::info!(
-                "set thread prio to MAX",
-            ),
-            Err(e) => log::error!(
-                "failed to set thread prio to MAX: {:?}.",
-                e
-            ),
+            Ok(_) => log::info!("set thread prio to MAX"),
+            Err(e) => log::error!("failed to set thread prio to MAX: {:?}.", e),
         }
 
         smol::block_on(ctrl_loop::entry_loop(&network_interface))
