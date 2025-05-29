@@ -30,7 +30,7 @@ fn main() { // opcua setup + config + shutdown should be done here
 
         let set_priority_result = set_current_thread_priority(
             ThreadPriority::Max,
-        );
+        );  
 
         match set_priority_result {
             Ok(_) => log::info!("set thread prio to MAX"),

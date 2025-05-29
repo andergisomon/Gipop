@@ -26,7 +26,7 @@ pub static JITTER_BUF: LazyLock<Mutex<Vec<JitterSample>>> = LazyLock::new(|| Mut
 pub fn start_jitter_exporter() {
     smol::spawn(async {
         // Wait N seconds before exporting
-        smol::Timer::after(Duration::from_secs(120)).await;
+        smol::Timer::after(Duration::from_secs(600)).await;
 
         let filename = "jitter_export.csv";
         let file = File::create(filename).expect("Unable to create CSV file");
@@ -167,63 +167,26 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");
 
     let ts = term_states.clone();
-
-    // PLC logic entry point. Cycle time watchdog should be here
     let mut counter: u64 = 0;
     let cycle = Duration::from_millis(10);
     let mut next_time = Instant::now() + cycle;
-    let start_bench= Instant::now();
 
-    smol::spawn(async move 
-        {
-            start_jitter_exporter();
-            loop {
-                let now = Instant::now();
-
-                if now.duration_since(start_bench) == Duration::from_secs(120) {
-                    break;
-                }
-
-                let jitter = now.duration_since(next_time);
-                if let Ok(mut buf) = JITTER_BUF.try_lock() {
-                    buf.push(JitterSample {
-                        cycle: counter,
-                        jitter: jitter.as_micros() as i64,
-                    });
-                }
-
-                plc_execute_logic(ts.clone(), counter.clone());
-                counter = counter.wrapping_add(1);
-                next_time += cycle;
-    
-                let now = Instant::now();
-                if next_time > now {
-                    smol::Timer::at(next_time).await;
-                } else {
-                    log::warn!("Missed cycle deadline, skipping sleep");
-                }
-            }
-        }
-    ).detach();
-
-    let ts = term_states.clone();
-    // Shared memory
-    smol::spawn(async move 
-        {
-            loop {
-                smol::Timer::after(Duration::from_millis(100)).await; // We're not controlling servos :)
-                opcua_shm(ts.clone());
-            }
-        }
-    ).detach();
-
+    start_jitter_exporter();
     // Enter the primary loop
     loop {
         if Arc::clone(&shutdown).load(Ordering::Relaxed) {
             log::info!("Shutting down...");
             break;
         }
-        smol::Timer::after(Duration::from_millis(8)).await; // We're not controlling servos :)
+        // Measure jitter
+        let now = Instant::now();
+        let jitter = now.duration_since(next_time);
+        if let Ok(mut buf) = JITTER_BUF.try_lock() {
+            buf.push(JitterSample {
+                cycle: counter,
+                jitter: jitter.as_micros() as i64,
+            });
+        }
 
         group.tx_rx(&maindevice).await.expect("TX/RX");
 
@@ -324,6 +287,19 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
                 }
             }
         }
+
+        plc_execute_logic(ts.clone(), counter.clone());
+        opcua_shm(ts.clone());
+        counter = counter.wrapping_add(1);
+        next_time += cycle;
+
+        let now = Instant::now();
+        if next_time > now {
+            smol::Timer::at(next_time).await;
+        } else {
+            log::warn!("Missed cycle deadline, skipping sleep");
+        }
+
     }
 
     let group = group.into_safe_op(&maindevice).await.expect("OP -> SAFE-OP");
