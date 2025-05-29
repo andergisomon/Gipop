@@ -1123,14 +1123,17 @@ dependencies = [
  "async-io",
  "bitvec",
  "bytemuck",
+ "csv",
  "enum-iterator",
  "env_logger",
  "ethercrab",
  "hal",
  "log",
  "memmap2",
+ "serde",
  "signal-hook",
  "smol",
+ "thread-priority",
  "tokio",
 ]
 
