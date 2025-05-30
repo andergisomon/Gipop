@@ -297,7 +297,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
         if next_time > now {
             smol::Timer::at(next_time).await;
         } else {
-            log::warn!("Missed cycle deadline, skipping sleep");
+            log::warn!("⚠️Time determinism lost!\nPLC task took more than specified cycle time of {}", cycle.clone().as_millis() as i64);
         }
 
     }
