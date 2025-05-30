@@ -10,6 +10,7 @@ log = "0.4.27"
 memmap2 = "0.9.5"
 bytemuck = {version = "1.23.0", features = ["derive"]}
 tokio = "1.44.2"
+iceoryx2 = "0.6.1"
 
 [dependencies.async-opcua]
 version = "0.15.1"

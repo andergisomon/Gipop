@@ -4,9 +4,9 @@
 // Modified 2025 Ander Jiloh
 
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, LazyLock};
 use std::time::{Duration, Instant};
-use std::{fs::OpenOptions, path::Path};
+use std::{rc::Rc, cell::RefCell, fs::OpenOptions, path::Path};
 
 use log::warn;
 use opcua::server::address_space::{Variable, VariableBuilder, AccessLevel, NodeType};
@@ -18,6 +18,23 @@ use opcua::server::{ServerBuilder, SubscriptionCache};
 use opcua::types::{BuildInfo, DataValue, DateTime, NodeId, UAString, StatusCode, DataTypeId, NumericRange, Variant, TimestampsToReturn};
 mod shared;
 use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
+use iceoryx2::prelude::*;
+use tokio::task::LocalSet;
+
+// fn init_ipc() -> Result<Subscriber<Service, u64, ()>, anyhow::Error> {
+//     let node = NodeBuilder::new().create::<ipc::Service>()?;
+//     let service = node
+//     .service_builder(&"ipc".try_into()?)
+//     .publish_subscribe::<u64>()
+//     .open_or_create().unwrap();
+//     let subscriber = service.subscriber_builder().create()?;
+//     return subscriber
+// }
+
+// fn read_ipc(subscriber: Subscriber<Service, u64, ()>) -> Result<u64, anyhow::Error> {
+//     let Some(count) = subscriber.receive()?;
+//     return count
+// }
 
 #[tokio::main]
 async fn main() {
@@ -35,6 +52,31 @@ async fn main() {
         area_2_lights: 0,
         area_1_lights_hmi_cmd: 0,
     }));
+
+    let local = LocalSet::new();
+    local.spawn_local(async move {
+
+        // Init IPC
+        let node = NodeBuilder::new().create::<ipc::Service>().unwrap();
+        let service = node
+        .service_builder(&"ipc".try_into().unwrap())
+        .publish_subscribe::<u64>()
+        .open_or_create().unwrap();
+        let subscriber = service.subscriber_builder().create().unwrap();
+        let subscriber = Rc::new(RefCell::new(subscriber));
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let count = subscriber.borrow_mut().receive().unwrap();
+            match count {
+                Some(count) => log::warn!("Counter: {}", *count),
+                None => log::error!("empty value")
+            }
+        }
+    });
+
+    local.await;
+
 
     // spawn polling task
     let shared_data_clone = shared_data.clone();
@@ -121,6 +163,7 @@ fn add_plc_variables(
     let ar1_lights_node = NodeId::new(ns, "area 1 lights");
     let ar2_lights_node = NodeId::new(ns, "area 2 lights");
     let ar1_lights_hmi_cmd_node = NodeId::new(ns, "area 1 lights hmi cmd");
+    // let plc_cycle_count = NodeId::new(ns, "plc cycle count");
 
     let address_space = manager.address_space();
 
@@ -153,6 +196,7 @@ fn add_plc_variables(
                 Variable::new(&stat_node, "status", "status", 0_u32),
                 Variable::new(&ar1_lights_node, "area 1 lights", "area 1 lights", 0_u32),
                 Variable::new(&ar2_lights_node, "area 2 lights", "area 2 lights", 0_u32),
+                // Variable::new(&plc_cycle_count, "plc cycle count", "plc cycle count", 0_u64),
                 ar1_lights_hmi_cmd_node_var,
             ],
             &plc_folder_id,
@@ -206,6 +250,13 @@ fn add_plc_variables(
                 )
             )
         });
+        // manager.inner().add_read_callback(plc_cycle_count.clone(),
+        // move |_, _, _| {
+        //     Ok(DataValue::new_now(
+        //         fetch_cycle_count() // call fetcher function
+        //     )
+        // )
+        // });
     }
 
 }
@@ -269,3 +320,7 @@ fn write_ar1_lights_to_shmem(val: DataValue, _range: &NumericRange) -> StatusCod
         }
     }
 }
+
+// fn fetch_cycle_count() -> u64 {
+
+// }

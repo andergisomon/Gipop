@@ -7,13 +7,14 @@ use std::{
     io::Write
 };
 use bitvec::prelude::*;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 // For getting read/write locks to terminal objects in PLC memory
 use hal::io_defs::*;
 use hal::term_cfg::*;
 use crate::logic::*; // Business logic execution; Calls to methods to accomplish business logic
 use crate::shared::{SHM_PATH, map_shared_memory, read_data, write_data};
+use iceoryx2::prelude::*;
 
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 struct JitterSample {
@@ -166,6 +167,16 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
     let shutdown = Arc::new(AtomicBool::new(false)); // Handling Ctrl+C
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");
 
+
+    // Init IPC
+    let node = NodeBuilder::new().create::<ipc::Service>()?;
+    let service = node
+    .service_builder(&"ipc".try_into()?)
+    .publish_subscribe::<u64>()
+    .open_or_create()?;
+    let publisher = service.publisher_builder().create()?;
+
+
     let ts = term_states.clone();
     let mut counter: u64 = 0;
     let cycle = Duration::from_millis(10);
@@ -290,6 +301,9 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
         plc_execute_logic(ts.clone(), counter.clone());
         opcua_shm(ts.clone());
+        let payload = publisher.loan_uninit()?;
+        payload.write_payload(counter.clone()).send()?;
+
         counter = counter.wrapping_add(1);
         next_time += cycle;
 
@@ -297,7 +311,8 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
         if next_time > now {
             smol::Timer::at(next_time).await;
         } else {
-            log::warn!("⚠️Time determinism lost!\nPLC task took more than specified cycle time of {}", cycle.clone().as_millis() as i64);
+            let lag = now.duration_since(next_time);
+            log::warn!("⚠️Time determinism lost!\nPLC task lagging by {}us. Specified cycle time: {}ms", lag.as_micros(), cycle.clone().as_millis() as i64);
         }
 
     }
@@ -360,3 +375,19 @@ fn opcua_shm(term_states: Arc<RwLock<TermStates>>) {
         write_data(&mut mmap, data);
     }
 }
+
+// fn opcua_shm_iceoryx2() {
+
+// }
+
+// fn init_ipc() -> Result<(), anyhow::Error> {
+//     let node = NodeBuilder::new().create::<ipc::Service>()?;
+//     let service = node
+//     .service_builder(&"ipc".try_into()?)
+//     .publish_subscribe::<u64>()
+//     .open_or_create()?;
+
+//     let publisher = service.publisher_builder().create();
+
+//     Ok(())
+// }
