@@ -15,7 +15,7 @@ use hal::term_cfg::*;
 use crate::logic::*; // Business logic execution; Calls to methods to accomplish business logic
 use crate::shared::{SHM_PATH, map_shared_memory, read_data, write_data};
 use crate::ipc::*;
-use iceoryx2::prelude::*;
+use iceoryx2::{port::{publisher, subscriber}, prelude::*};
 
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 struct JitterSample {
@@ -171,21 +171,29 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
     // Init IPC
     let node = NodeBuilder::new().create::<ipc::Service>()?;
-    let service = node
+    let pub_service = node
     .service_builder(&"ipc".try_into()?)
     .publish_subscribe::<IpcDataFromPlc>()
     .open_or_create()?;
-    let publisher: iceoryx2::port::publisher::Publisher<ipc::Service, IpcDataFromPlc, ()> = service.publisher_builder().create()?;
+
+    let publisher: publisher::Publisher<ipc::Service, IpcDataFromPlc, ()> = pub_service.publisher_builder().create()?;
     let publisher = Arc::new(publisher);
 
+    let sub_service = node
+    .service_builder(&"ipc".try_into()?)
+    .publish_subscribe::<IpcDataToPlc>()
+    .open_or_create()?;
+
+    let subscriber: subscriber::Subscriber<ipc::Service, IpcDataToPlc, ()> = sub_service.subscriber_builder().create()?;
+    let subscriber = Arc::new(subscriber);
+
     let ts = term_states.clone();
-    let ipc_states_from_plc = Arc::new(Mutex::new(IpcDataFromPlc::new()));
-    let ipc_states_to_plc = Arc::new(Mutex::new(IpcDataFromPlc::new()));
     let mut counter: u64 = 0;
     let cycle = Duration::from_millis(10);
     let mut next_time = Instant::now() + cycle;
 
     start_jitter_exporter();
+    opcua_init_ipc_from_plc(publisher.clone())?;
     // Enter the primary loop
     loop {
         if Arc::clone(&shutdown).load(Ordering::Relaxed) {
@@ -304,7 +312,9 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
         plc_execute_logic(ts.clone(), counter.clone());
         opcua_shm(ts.clone());
-        opcua_ipc_from_plc(ts.clone(), ipc_states_from_plc.clone(), publisher.clone());
+        opcua_ipc_from_plc(ts.clone(), publisher.clone())?;
+        // opcua_ipc_to_plc(subscriber.clone())?;
+        
         // let payload = publisher.loan_uninit()?;
         // payload.write_payload(counter.clone()).send()?;
 
@@ -388,10 +398,11 @@ fn opcua_init_ipc_from_plc(publisher: Arc<iceoryx2::port::publisher::Publisher<i
     Ok(())
 }
 
-fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<iceoryx2::port::publisher::Publisher<ipc::Service, IpcDataFromPlc, ()>>) -> Result<(), anyhow::Error> {
+/// ⚠️ **UB Warning!** ⚠️ Compiler cannot prove safety: Make sure `opcua_init_ipc_from_plc()` has been called before calling this function
+fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<publisher::Publisher<ipc::Service, IpcDataFromPlc, ()>>) -> Result<(), anyhow::Error> {
     let sample = publisher.loan_uninit()?;
 
-    // Warning! Make sure opcua_init_ipc_from_plc() has been called
+    // ⚠️UB Warning!⚠️ Compiler cannot prove safety: Make sure opcua_init_ipc_from_plc() has been called
     let mut sample = unsafe { sample.assume_init() };
     let data = sample.payload_mut();
 
@@ -434,13 +445,16 @@ fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<iceor
     Ok(())
 }
 
-fn opcua_ipc_to_plc(ipc_states: Arc<Mutex<IpcDataToPlc>>) {
-    let data = ipc_states.lock().expect("get ipc_states lock");
+/// ⚠️ **UB Warning!** ⚠️ Compiler cannot prove safety: Make sure `opcua_init_ipc_to_plc()` **in OPC UA server program** has been called before calling this function
+fn opcua_ipc_to_plc(subscriber: Arc<subscriber::Subscriber<ipc::Service, IpcDataToPlc, ()>>) -> Result<(), anyhow::Error> {
+    while let Some(sample) = subscriber.receive()? {
+        let data = sample.payload();
+        // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
+        // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
+        let mut plc_data = LOCAL_PLC_DATA.write().unwrap();
 
-    // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
-    // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
-    let mut plc_data = LOCAL_PLC_DATA.write().unwrap();
-
-    // Incoming to PLC: HMI command from shmem to local PLC state
-    plc_data.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
+        // Incoming to PLC: HMI command from shmem to local PLC state
+        plc_data.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
+    }
+    Ok(())
 }
