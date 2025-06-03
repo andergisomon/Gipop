@@ -1,20 +1,37 @@
 use iceoryx2::prelude::*;
 
-pub fn init_ipc() {
+#[derive(Debug, Default, PlacementDefault, ZeroCopySend)]
+#[repr(C)]
+pub struct IpcDataFromPlc {
+    pub temperature: f32,
+    pub humidity: f32,
+    pub status: u32,
+    pub area_1_lights: u32,
+    pub area_2_lights: u32,
+}
 
+#[derive(Debug, Default, PlacementDefault, ZeroCopySend)]
+#[repr(C)]
+pub struct IpcDataToPlc {
+    pub area_1_lights_hmi_cmd: u32, // incoming to PLC
+}
 
-    while node.wait(CYCLE_TIME).is_ok() {
-        counter += 1;
-        let sample = publisher.loan_uninit()?;
+impl IpcDataFromPlc {
+    pub fn new() -> Self {
+        Self {
+            temperature: 0.0,
+            humidity: 0.0,
+            status: 0,
+            area_1_lights: 0,
+            area_2_lights: 0,
+        }
+    }
+}
 
-        let sample = sample.write_payload(TransmissionData {
-            x: counter as i32,
-            y: counter as i32 * 3,
-            funky: counter as f64 * 812.12,
-        });
-
-        sample.send()?;
-
-        println!("Send sample {} ...", counter);
+impl IpcDataToPlc {
+    pub fn new() -> Self {
+        Self {
+            area_1_lights_hmi_cmd: 0
+        }
     }
 }
