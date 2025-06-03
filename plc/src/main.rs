@@ -1,6 +1,7 @@
 use env_logger::Env;
 pub mod ctrl_loop;
 mod shared;
+mod ipc;
 pub mod logic;
 use shared::{SharedData, SHM_PATH};
 use std::{sync::Arc, env, fs::OpenOptions, path::Path,};
