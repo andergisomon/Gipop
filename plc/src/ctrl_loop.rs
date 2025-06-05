@@ -45,7 +45,6 @@ pub fn start_jitter_exporter() {
     }).detach();
 }
 
-
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
 const MAX_FRAMES: usize = 16; /// Max no. of EtherCAT frames that can be in flight at any one time.
@@ -167,7 +166,6 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
     let shutdown = Arc::new(AtomicBool::new(false)); // Handling Ctrl+C
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&shutdown)).expect("Register hook");
-
 
     // Init IPC
     let pub_node = NodeBuilder::new().create::<ipc::Service>()?;
@@ -403,6 +401,11 @@ fn opcua_init_ipc_from_plc(publisher: Arc<iceoryx2::port::publisher::Publisher<i
 fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<publisher::Publisher<ipc::Service, IpcDataFromPlc, ()>>) -> Result<(), anyhow::Error> {
     let sample = publisher.loan_uninit()?;
 
+    // TODO? rip out this redundant copying?
+    // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
+    // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
+    let mut plc_data = LOCAL_PLC_DATA.write().unwrap();
+
     // ⚠️UB Warning!⚠️ Compiler cannot prove safety: Make sure opcua_init_ipc_from_plc() has been called
     let mut sample = unsafe { sample.assume_init() };
     let data = sample.payload_mut();
@@ -413,11 +416,13 @@ fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<publi
         let ch2_reading = guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
         let current = ch2_reading.pick_current().unwrap();
         let temp = ((current * 493.0)/1000.0 + 1.044) * 5.0; // offset can be calculated delta / 5.0
+        plc_data.temperature = temp;
         data.temperature = temp;
 
         let ch1_reading = guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
         let current = ch1_reading.pick_current().unwrap();
         let rh = ((current * 493.0)/1000.0 + 1.018) * 10.0; // offset can be calculated delta / 10.0
+        plc_data.temperature = rh;
         data.humidity = rh;
 
         let ts_status = term_states.clone();
@@ -427,9 +432,12 @@ fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<publi
     
         let ts_1 = term_states.clone();
         let ts_2 = ts_1.clone();
-    
-        data.area_1_lights = read_area_1_lights(ts_1) as u32;
-        data.area_2_lights = read_area_2_lights(ts_2) as u32;
+
+        plc_data.area_1_lights = read_area_1_lights(ts_1) as u32;
+        plc_data.area_2_lights = read_area_2_lights(ts_2) as u32;
+
+        data.area_1_lights = plc_data.area_1_lights;
+        data.area_2_lights = plc_data.area_2_lights;
     }
 
     // Send payload
@@ -441,6 +449,8 @@ fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<publi
 fn opcua_ipc_to_plc(subscriber: Arc<subscriber::Subscriber<ipc::Service, IpcDataToPlc, ()>>) -> Result<(), anyhow::Error> {
     while let Some(sample) = subscriber.receive()? {
         let data = sample.payload();
+
+        // TODO? rip out this redundant copying?
         // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
         // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
         let mut plc_data = LOCAL_PLC_DATA.write().unwrap();
