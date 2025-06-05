@@ -170,17 +170,18 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
 
 
     // Init IPC
-    let node = NodeBuilder::new().create::<ipc::Service>()?;
-    let pub_service = node
-    .service_builder(&"ipc".try_into()?)
+    let pub_node = NodeBuilder::new().create::<ipc::Service>()?;
+    let pub_service = pub_node
+    .service_builder(&"ipc_from_plc".try_into()?)
     .publish_subscribe::<IpcDataFromPlc>()
     .open_or_create()?;
 
     let publisher: publisher::Publisher<ipc::Service, IpcDataFromPlc, ()> = pub_service.publisher_builder().create()?;
     let publisher = Arc::new(publisher);
 
-    let sub_service = node
-    .service_builder(&"ipc".try_into()?)
+    let sub_node = NodeBuilder::new().create::<ipc::Service>()?;
+    let sub_service = sub_node
+    .service_builder(&"ipc_to_plc".try_into()?)
     .publish_subscribe::<IpcDataToPlc>()
     .open_or_create()?;
 
@@ -406,39 +407,30 @@ fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<publi
     let mut sample = unsafe { sample.assume_init() };
     let data = sample.payload_mut();
 
-    // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
-    // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
-    let mut plc_data = LOCAL_PLC_DATA.write().unwrap();
-
     {   
         let rd_guard = term_states.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
         let guard = rd_guard.ebus_ai_terms[0].read().unwrap();
         let ch2_reading = guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
         let current = ch2_reading.pick_current().unwrap();
         let temp = ((current * 493.0)/1000.0 + 1.044) * 5.0; // offset can be calculated delta / 5.0
-        plc_data.temperature = temp;
         data.temperature = temp;
 
         let ch1_reading = guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
         let current = ch1_reading.pick_current().unwrap();
         let rh = ((current * 493.0)/1000.0 + 1.018) * 10.0; // offset can be calculated delta / 10.0
-        plc_data.humidity = rh;
         data.humidity = rh;
+
+        let ts_status = term_states.clone();
+        let rd_guard = ts_status.read().expect("get term_states read guard");
+        let kl1889 = rd_guard.kbus_terms[0].read().expect("get KL1889 read guard");
+        data.status = kl1889.read(Some(ChannelInput::Channel(TermChannel::Ch6))).unwrap().pick_simple().unwrap() as u32;
+    
+        let ts_1 = term_states.clone();
+        let ts_2 = ts_1.clone();
+    
+        data.area_1_lights = read_area_1_lights(ts_1) as u32;
+        data.area_2_lights = read_area_2_lights(ts_2) as u32;
     }
-
-    let ts_status = term_states.clone();
-    let rd_guard = ts_status.read().expect("get term_states read guard");
-    let kl1889 = rd_guard.kbus_terms[0].read().expect("get KL1889 read guard");
-    data.status = kl1889.read(Some(ChannelInput::Channel(TermChannel::Ch6))).unwrap().pick_simple().unwrap() as u32;
-
-    let ts_1 = term_states.clone();
-    let ts_2 = ts_1.clone();
-
-    plc_data.area_1_lights = read_area_1_lights(ts_1) as u32;
-    data.area_1_lights = plc_data.area_1_lights;
-
-    plc_data.area_2_lights = read_area_2_lights(ts_2) as u32;
-    data.area_2_lights = plc_data.area_2_lights;
 
     // Send payload
     sample.send()?;

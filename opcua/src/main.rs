@@ -18,23 +18,11 @@ use opcua::server::{ServerBuilder, SubscriptionCache};
 use opcua::types::{BuildInfo, DataValue, DateTime, NodeId, UAString, StatusCode, DataTypeId, NumericRange, Variant, TimestampsToReturn};
 mod shared;
 use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
-use iceoryx2::prelude::*;
 use tokio::task::LocalSet;
-
-// fn init_ipc() -> Result<Subscriber<Service, u64, ()>, anyhow::Error> {
-//     let node = NodeBuilder::new().create::<ipc::Service>()?;
-//     let service = node
-//     .service_builder(&"ipc".try_into()?)
-//     .publish_subscribe::<u64>()
-//     .open_or_create().unwrap();
-//     let subscriber = service.subscriber_builder().create()?;
-//     return subscriber
-// }
-
-// fn read_ipc(subscriber: Subscriber<Service, u64, ()>) -> Result<u64, anyhow::Error> {
-//     let Some(count) = subscriber.receive()?;
-//     return count
-// }
+mod ipc;
+use crate::ipc::*;
+use iceoryx2::{port::{publisher, subscriber}, prelude::*};
+use anyhow::{anyhow, Result};
 
 #[tokio::main]
 async fn main() {
@@ -57,26 +45,43 @@ async fn main() {
     local.spawn_local(async move {
 
         // Init IPC
-        let node = NodeBuilder::new().create::<ipc::Service>().unwrap();
-        let service = node
-        .service_builder(&"ipc".try_into().unwrap())
-        .publish_subscribe::<u64>()
-        .open_or_create().unwrap();
-        let subscriber = service.subscriber_builder().create().unwrap();
-        let subscriber = Rc::new(RefCell::new(subscriber));
+        let pub_node = NodeBuilder::new().create::<iceoryx2::prelude::ipc::Service>()?;
+        let pub_service = pub_node
+        .service_builder(&"ipc_to_plc".try_into()?)
+        .publish_subscribe::<IpcDataToPlc>()
+        .open_or_create()?;
+
+        let publisher = pub_service.publisher_builder().create()?;
+        let publisher = Arc::new(publisher);
+
+        let sub_node = NodeBuilder::new().create::<iceoryx2::prelude::ipc::Service>()?;
+        let sub_service = sub_node
+        .service_builder(&"ipc_from_plc".try_into()?)
+        .publish_subscribe::<IpcDataFromPlc>()
+        .open_or_create()?;
+
+        let subscriber = sub_service.subscriber_builder().create()?;
+        let subscriber = Arc::new(subscriber);
 
         loop {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let count = subscriber.borrow_mut().receive().unwrap();
-            match count {
-                Some(count) => log::warn!("Counter: {}", *count),
-                None => log::error!("empty value")
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            while let Some(sample) = subscriber.receive()? {
+                log::info!("[Via iceoryx2] temp: {}, humd: {}, stat: {}, ar1:{}, ar2:{}",
+                            sample.payload().temperature,
+                            sample.payload().humidity,
+                            sample.payload().status,
+                            sample.payload().area_1_lights,
+                            sample.payload().area_2_lights,
+                        );
+            }
+            if subscriber.receive().unwrap().is_none() {
+                log::warn!("not getting anything!")
             }
         }
+        Ok::<(), anyhow::Error>(())
     });
 
     local.await;
-
 
     // spawn polling task
     let shared_data_clone = shared_data.clone();
@@ -92,10 +97,10 @@ async fn main() {
                 local.area_2_lights = data.area_2_lights;
                 local.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
 
-                log::info!(
-                    "[OPC UA sync] temp: {}, humd: {}, stat: {}, area1: {}, area2: {}, area1_cmd: {}",
-                    local.temperature, local.humidity, local.status, local.area_1_lights, local.area_2_lights, local.area_1_lights_hmi_cmd
-                );
+                // log::info!(
+                //     "[OPC UA sync] temp: {}, humd: {}, stat: {}, area1: {}, area2: {}, area1_cmd: {}",
+                //     local.temperature, local.humidity, local.status, local.area_1_lights, local.area_2_lights, local.area_1_lights_hmi_cmd
+                // );
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
@@ -133,11 +138,8 @@ async fn main() {
         .unwrap();
     let ns = handle.get_namespace_index("urn:GipopPlcServer").unwrap();
 
-    // Add some variables of our own
     add_plc_variables(ns, node_manager, handle.subscriptions().clone());
 
-    // If you don't register a ctrl-c handler, the server will close without
-    // informing clients.
     let handle_c = handle.clone();
     tokio::spawn(async move {
         if let Err(e) = tokio::signal::ctrl_c().await {
@@ -148,7 +150,6 @@ async fn main() {
     });
     
     log::info!("Server running");
-    // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
     server.run().await.unwrap();
 }
 
