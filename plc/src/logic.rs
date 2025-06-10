@@ -1,11 +1,10 @@
+use enum_iterator::last;
 // For getting read/write locks to terminal objects in PLC memory
 use hal::io_defs::*;
 use hal::term_cfg::*;
 use hal::enocean_driver::*;
 use std::sync::{Arc, RwLock, LazyLock};
 use std::fs::OpenOptions;
-use std::time::Duration;
-use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
 
@@ -30,6 +29,12 @@ pub struct LocalPlcData {
     pub area_1_lights_hmi_cmd: u32, // incoming to PLC
 }
 
+// hmi cmd variables latch by default
+struct LastCycle {
+    area_1_lights_hmi_cmd: u32,
+    blinkerlamps: bool,
+}
+
 impl LocalPlcData {
     pub fn new() -> Self {
         LocalPlcData {
@@ -45,6 +50,7 @@ impl LocalPlcData {
 
 pub static LOCAL_PLC_DATA: LazyLock<RwLock<LocalPlcData>> = LazyLock::new(|| RwLock::new(LocalPlcData::new()));
 pub static GVL: LazyLock<RwLock<Gvl>> = LazyLock::new(|| RwLock::new(Gvl::new()));
+static LAST_CYCLE: LazyLock<RwLock<LastCycle>> = LazyLock::new(|| RwLock::new(LastCycle { area_1_lights_hmi_cmd: 0, blinkerlamps: false }));
 
 pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
 
@@ -52,17 +58,20 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
         enocean_sm(Arc::clone(&term_states));
 
         let cmd = LOCAL_PLC_DATA.read().unwrap();
+        let mut last_cycle = LAST_CYCLE.write().unwrap();
 
-        if cmd.area_1_lights_hmi_cmd == 2 {
+        if cmd.area_1_lights_hmi_cmd == 2 && cmd.area_1_lights_hmi_cmd != last_cycle.area_1_lights_hmi_cmd {
             // log::info!("Area 1 Lights Command On");
-            write_all_channel_kl2889(Arc::clone(&term_states), true);
-            reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
+            GVL.write().unwrap().blinkerlamps = true;
+            // write_all_channel_kl2889(Arc::clone(&term_states), true);
+            last_cycle.area_1_lights_hmi_cmd = cmd.area_1_lights_hmi_cmd; // Must be reset to avoid conflict with EnOcean
         }
 
-        if cmd.area_1_lights_hmi_cmd == 1 {
+        if cmd.area_1_lights_hmi_cmd == 1 && cmd.area_1_lights_hmi_cmd != last_cycle.area_1_lights_hmi_cmd {
             // log::info!("Area 1 Lights Command Off");
-            write_all_channel_kl2889(Arc::clone(&term_states), false);
-            reset_hmi_cmd(); // Must be reset to avoid conflict with EnOcean
+            GVL.write().unwrap().blinkerlamps = false;
+            // write_all_channel_kl2889(Arc::clone(&term_states), false);
+            last_cycle.area_1_lights_hmi_cmd = cmd.area_1_lights_hmi_cmd; // Must be reset to avoid conflict with EnOcean
         }
 
         let blink = GVL.read().unwrap().blinkerlamps;
@@ -75,6 +84,9 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
                     write_all_channel_kl2889(Arc::clone(&term_states), true);   
                 }
             }
+        }
+        else { // Avoid logical race condition: If blinkerlamps == false, always make sure output inactive
+            write_all_channel_kl2889(Arc::clone(&term_states), false);
         }
     }
 }
@@ -99,6 +111,7 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
     else { // No errors
         let check_sb_1 = check_sb_bit(Arc::clone(&term_states), 1);
         let read_cb1 = read_cb1(Arc::clone(&term_states));
+        let mut last_cycle = LAST_CYCLE.write().unwrap();
 
         // log::info!("CB1: {}, SB1: {}", read_cb1, check_sb_1);
 
@@ -110,13 +123,14 @@ fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
             if (db3 & 0b11110000) == 0b01010000 {
                 log::info!("Rocker B, I pos. pressed");
                 GVL.write().unwrap().blinkerlamps = true;
+                last_cycle.blinkerlamps = true;
                 // write_all_channel_kl2889(Arc::clone(&term_states), true);
             }
 
             if (db3 & 0b11110000) == 0b01110000 {
                 log::info!("Rocker B, O pos. pressed");
                 GVL.write().unwrap().blinkerlamps = false;
-                write_all_channel_kl2889(Arc::clone(&term_states), false);
+                // write_all_channel_kl2889(Arc::clone(&term_states), false);
             }
 
             if (db3 & 0b11110000) == 0b00010000 {
@@ -175,14 +189,4 @@ fn write_all_channel_el2889(val: bool, term_states: Arc<RwLock<TermStates>>) {
     for idx in 0..el2889.num_of_channels {
         el2889.write(val, ChannelInput::Index(idx)).unwrap();
     }
-}
-
-// Very important. Resets hmi cmd in shared mem so that the old value doesn't create conflict with
-// later EnOcean commands
-fn reset_hmi_cmd() {
-    let file = OpenOptions::new().read(true).write(true).open(SHM_PATH).unwrap();
-    let mut mmap = map_shared_memory(&file);
-    let mut data = read_data(&mmap);
-    data.area_1_lights_hmi_cmd = 0;
-    write_data(&mut mmap, data);
 }

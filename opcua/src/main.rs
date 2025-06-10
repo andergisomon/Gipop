@@ -1,13 +1,10 @@
 // Ship of Theseus'd from the simple server example
 use log::warn;
 use std::sync::{Arc, Mutex, LazyLock};
-use std::fs::OpenOptions;
 use tokio::task::LocalSet;
 
 use anyhow::{anyhow, Result};
 
-mod shared;
-use crate::shared::{SharedData, SHM_PATH, map_shared_memory, read_data, write_data};
 mod ipc;
 use crate::ipc::*;
 use iceoryx2::{port::{publisher, subscriber}, prelude::*};
@@ -26,13 +23,22 @@ use opcua::types::{
     BuildInfo, DataValue, DateTime,
     NodeId, StatusCode, DataTypeId, NumericRange, Variant};
 
-static SERVER_COPY: LazyLock<Mutex<IpcDataFromPlc>> = LazyLock::new(|| Mutex::new(IpcDataFromPlc {
+static SERVER_COPY: LazyLock<Mutex<IpcData>> = LazyLock::new(|| Mutex::new(IpcData {
     temperature: 0.0,
     humidity: 0.0,
     status: 0,
     area_1_lights: 0,
     area_2_lights: 0,
+    area_1_lights_hmi_cmd: 0,
 }));
+
+// Very important, call once before entering ctrl loop to initialize shared ipc types to default values
+// shared ipc types must implement the PlacementDefault trait
+fn opcua_init_ipc_to_plc(publisher: Arc<iceoryx2::port::publisher::Publisher<iceoryx2::prelude::ipc::Service, IpcDataToPlc, ()>>) -> Result<(), anyhow::Error> {
+    let mut sample = publisher.loan_uninit()?;
+    unsafe { IpcDataToPlc::placement_default(sample.payload_mut().as_mut_ptr()) };
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() {
@@ -56,7 +62,8 @@ async fn main() {
                     .open_or_create()?;
             
                     let publisher = pub_service.publisher_builder().create()?;
-                    let publisher = Arc::new(publisher);
+                    let publisher: Arc<publisher::Publisher<iceoryx2::prelude::ipc::Service, IpcDataToPlc, ()>> = Arc::new(publisher);
+                    opcua_init_ipc_to_plc(publisher.clone())?;
             
                     let sub_node = NodeBuilder::new().create::<iceoryx2::prelude::ipc::Service>()?;
                     let sub_service = sub_node
@@ -88,9 +95,24 @@ async fn main() {
                             if subscriber.receive().unwrap().is_none() {
                                 log::warn!("not getting anything!")
                             }
-                        } // Update done. 100ms window for read callbacks to acquire lock for reading.
+                        }
+
+                        {
+                            let local = SERVER_COPY.lock().unwrap();
+
+                            // ⚠️UB Warning!⚠️ Compiler cannot prove safety: Make sure opcua_init_ipc_to_plc() has been called
+                            let sample = publisher.loan_uninit()?;
+                            let mut sample = unsafe { sample.assume_init() };
+                            let data = sample.payload_mut();
+
+                            data.area_1_lights_hmi_cmd = local.area_1_lights_hmi_cmd;
+
+                            // Send payload
+                            sample.send()?;
+                        }
+                        
+                        // Update done. 100ms window for read callbacks to acquire lock for reading.
                         std::thread::sleep(std::time::Duration::from_millis(100));
-                        // tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
                     Ok::<(), anyhow::Error>(())
                 }).await.expect("ipc task failed");
@@ -100,7 +122,7 @@ async fn main() {
     let (server, handle) = ServerBuilder::new()
     .with_config_from("../server.conf")
     .build_info(BuildInfo {
-        product_uri: "https://github.com/freeopcua/async-opcua".into(),
+        product_uri: "https://github.com/andergisomon/gipop".into(),
         manufacturer_name: "Pongipop Tohog Oundar Gipop".into(),
         product_name: "Gipop OPC-UA Server".into(),
         software_version: "0.1.0".into(),
@@ -194,7 +216,7 @@ fn add_plc_variables(
         manager.inner().add_write_callback(
             ar1_lights_hmi_cmd_node.clone(),
             move |val: DataValue, _| {
-                write_ar1_lights_to_shmem(val, &NumericRange::None)
+                write_ar1_lights(val, &NumericRange::None)
             }
         );
 
@@ -271,22 +293,11 @@ fn fetch_ar2_lights() -> u32 {
     return local.area_2_lights
 }
 
-fn write_ar1_lights_to_shmem(val: DataValue, _range: &NumericRange) -> StatusCode {
-    let file = match OpenOptions::new().read(true).write(true).open(SHM_PATH) {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("Failed to open shared memory file: {}", e);
-            return StatusCode::Bad;
-        }
-    };
-
-    let mut mmap = map_shared_memory(&file);
-    let mut data = read_data(&mmap);
-
+fn write_ar1_lights(val: DataValue, _range: &NumericRange) -> StatusCode {
+    let mut local = SERVER_COPY.lock().unwrap();
     match val.value {
         Some(Variant::UInt32(n)) => {
-            data.area_1_lights_hmi_cmd = n;
-            write_data(&mut mmap, data);
+            local.area_1_lights_hmi_cmd = n;
             StatusCode::Good
         }
         other => {

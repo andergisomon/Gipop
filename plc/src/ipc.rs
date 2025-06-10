@@ -17,23 +17,3 @@ pub struct IpcDataFromPlc {
 pub struct IpcDataToPlc {
     pub area_1_lights_hmi_cmd: u32, // incoming to PLC
 }
-
-// impl IpcDataFromPlc {
-//     pub fn new() -> Self {
-//         Self {
-//             temperature: 0.0,
-//             humidity: 0.0,
-//             status: 0,
-//             area_1_lights: 0,
-//             area_2_lights: 0,
-//         }
-//     }
-// }
-
-// impl IpcDataToPlc {
-//     pub fn new() -> Self {
-//         Self {
-//             area_1_lights_hmi_cmd: 0
-//         }
-//     }
-// }
