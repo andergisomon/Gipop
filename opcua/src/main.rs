@@ -257,6 +257,13 @@ fn add_plc_variables(
                 )
             )
         });
+        manager.inner().add_read_callback(ar1_lights_hmi_cmd_node.clone(),
+            move |_, _, _| {
+                Ok(DataValue::new_now(
+                    fetch_ar1_lights_hmi_cmd()
+                )
+            )
+        });
         // manager.inner().add_read_callback(plc_cycle_count.clone(),
         // move |_, _, _| {
         //     Ok(DataValue::new_now(
@@ -291,6 +298,11 @@ fn fetch_ar1_lights() -> u32 {
 fn fetch_ar2_lights() -> u32 {
     let local = SERVER_COPY.lock().unwrap();
     return local.area_2_lights
+}
+
+fn fetch_ar1_lights_hmi_cmd() -> u32 {
+    let local = SERVER_COPY.lock().unwrap();
+    return local.area_1_lights_hmi_cmd
 }
 
 fn write_ar1_lights(val: DataValue, _range: &NumericRange) -> StatusCode {
