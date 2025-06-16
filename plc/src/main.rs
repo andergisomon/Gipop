@@ -15,16 +15,17 @@ fn main() { // opcua setup + config + shutdown should be done here
     }
 
     let network_interface = args[1].clone();
-    let measure_jitter = args[2].clone();
-    let y = String::from("YES");
-    let n = String::from("NO");
+    let measure_jitter_opt = args[2].clone();
 
-    if measure_jitter != y && measure_jitter != n {
+    let cmp = measure_jitter_opt.clone();
+    if cmp.as_str() != "YES" && cmp.as_str() != "NO" {
         log::error!("Provide only YES or NO to specify Measure jitter arg")
     }
-    let measure_jitter: bool = match measure_jitter {
-        y => true,
-        n => false,
+
+    let measure_jitter: bool = match measure_jitter_opt.clone().as_str() {
+        "YES" => true,
+        "NO" => false,
+        _ => unreachable!()
     };
 
     let handle = std::thread::spawn(move || {

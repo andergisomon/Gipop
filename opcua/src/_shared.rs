@@ -1,3 +1,4 @@
+/// This file is left here as a good luck charm. It's not used :)
 // this file should be a carbon copy in both ./opcua/src/ and ./plc/src/
 use bytemuck::{Pod, Zeroable};
 use std::{mem, fs::File};
