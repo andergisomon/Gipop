@@ -9,15 +9,11 @@ mod ipc;
 use crate::ipc::*;
 use iceoryx2::{port::{publisher, subscriber}, prelude::*};
 
-use opcua::server::{
-    ServerBuilder,
-    SubscriptionCache,
-    address_space::{Variable, VariableBuilder, AccessLevel},
-    diagnostics::NamespaceMetadata,
-    node_manager::memory::{
-        simple_node_manager, SimpleNodeManager, SimpleNodeManagerImpl, InMemoryNodeManager,
-    }
-};
+use opcua::{server::{
+    address_space::{AccessLevel, Variable, VariableBuilder}, diagnostics::NamespaceMetadata, node_manager::memory::{
+        simple_node_manager, InMemoryNodeManager, SimpleNodeManager, SimpleNodeManagerImpl
+    }, ServerBuilder, SubscriptionCache
+}, types::TimestampsToReturn};
 
 use opcua::types::{
     BuildInfo, DataValue, DateTime,

@@ -13,9 +13,9 @@ tokio = "1.44.2"
 iceoryx2 = "0.6.1"
 anyhow = "1.0.98"
 
-[dependencies.async-opcua]
-version = "0.15.1"
-features = ["server"]
-default-features = false
+# [dependencies.async-opcua]
+# version = "0.15.1"
+# features = ["server"]
+# default-features = false
 
-# async-opcua = { path = "/home/ander/SIIP_project/opcua/async-opcua/async-opcua", features = ["server"], default-features = false}
+async-opcua = { path = "/home/ander/SIIP_project/ponuridangan/main_branch_async-opcua/async-opcua/async-opcua", features = ["server"], default-features = false}

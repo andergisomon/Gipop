@@ -22,7 +22,7 @@ struct JitterSample {
     jitter: i64, // signed to show early/late
 }
 
-pub static JITTER_BUF: LazyLock<Mutex<Vec<JitterSample>>> = LazyLock::new(|| Mutex::new(Vec::with_capacity(10_000)));
+pub static JITTER_BUF: LazyLock<Mutex<Vec<JitterSample>>> = LazyLock::new(|| Mutex::new(Vec::with_capacity(50_000)));
 
 pub fn start_jitter_exporter() {
     smol::spawn(async {
@@ -50,7 +50,7 @@ const MAX_FRAMES: usize = 16; /// Max no. of EtherCAT frames that can be in flig
 const PDI_LEN: usize = 64; /// Max total PDI length.
 static PDU_STORAGE: PduStorage<MAX_FRAMES, MAX_PDU_DATA> = PduStorage::new();
 
-pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error> {
+pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Result<(), anyhow::Error> {
 
     let network_interface = network_interface.to_string();
     
@@ -190,8 +190,10 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
     let cycle = Duration::from_millis(10);
     let mut next_time = Instant::now() + cycle;
 
-    // start_jitter_exporter();
-    opcua_init_ipc_from_plc(publisher.clone())?;
+    if measure_jitter {
+        start_jitter_exporter();
+    }
+    opcua_init_ipc_from_plc(publisher.clone())?; // Very important, without this there will be UB!!!
     // Enter the primary loop
     loop {
         if Arc::clone(&shutdown).load(Ordering::Relaxed) {
@@ -199,16 +201,23 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             break;
         }
         // Measure jitter
-        let now = Instant::now();
-        let jitter = now.duration_since(next_time);
-        if let Ok(mut buf) = JITTER_BUF.try_lock() {
-            buf.push(JitterSample {
-                cycle: counter,
-                jitter: jitter.as_micros() as i64,
-            });
+        if measure_jitter {
+            let now = Instant::now();
+            let jitter = now.duration_since(next_time);
+            if let Ok(mut buf) = JITTER_BUF.try_lock() {
+                buf.push(JitterSample {
+                    cycle: counter,
+                    jitter: jitter.as_micros() as i64,
+                });
+            }
         }
 
-        group.tx_rx(&maindevice).await.expect("TX/RX");
+        // Honestly any kind of failure here should terminate the entire PLC program, make sure to set
+        // panic="abort" because this loop can still somehow recover from this panic
+        match group.tx_rx(&maindevice).await {
+            Ok(_) => {}
+            Err(e) => {log::error!(" ⚠️ MainDevice determinism Lost! PDU Timeout: {:?}", e)}
+        }
 
         // Physical Input Terminal --> Program Code Input Terminal Object
         for subdevice in group.iter(&maindevice) {
@@ -323,7 +332,7 @@ pub async fn entry_loop(network_interface: &String) -> Result<(), anyhow::Error>
             smol::Timer::at(next_time).await;
         } else {
             let lag = now.duration_since(next_time);
-            log::warn!("⚠️Time determinism lost!\nPLC task lagging by {}us. Specified cycle time: {}ms", lag.as_micros(), cycle.clone().as_millis() as i64);
+            log::warn!(" ⚠️ Time determinism lost!\nPLC task lagging by {}us. Specified cycle time: {}ms", lag.as_micros(), cycle.clone().as_millis() as i64);
         }
     }
 
