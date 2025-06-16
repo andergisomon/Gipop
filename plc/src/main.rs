@@ -19,7 +19,7 @@ fn main() { // opcua setup + config + shutdown should be done here
     let y = String::from("YES");
     let n = String::from("NO");
 
-    if measure_jitter != y || measure_jitter != n {
+    if measure_jitter != y && measure_jitter != n {
         log::error!("Provide only YES or NO to specify Measure jitter arg")
     }
     let measure_jitter: bool = match measure_jitter {
