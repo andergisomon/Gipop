@@ -26,6 +26,8 @@ static SERVER_COPY: LazyLock<Mutex<IpcData>> = LazyLock::new(|| Mutex::new(IpcDa
     area_1_lights: 0,
     area_2_lights: 0,
     area_1_lights_hmi_cmd: 0,
+    modbus_ai_0: 0.0,
+    modbus_di_0: 0,
 }));
 
 // Very important, call once before entering ctrl loop to initialize shared ipc types to default values
@@ -69,6 +71,15 @@ async fn main() {
             
                     let subscriber = sub_service.subscriber_builder().create()?;
                     let subscriber = Arc::new(subscriber);
+
+                    let modbus_sub_node = NodeBuilder::new().create::<iceoryx2::prelude::ipc::Service>()?;
+                    let modbus_sub_service = modbus_sub_node
+                    .service_builder(&"modbus_ipc_tx".try_into()?)
+                    .publish_subscribe::<ModbusIpcDataTx>()
+                    .open_or_create()?;
+
+                    let modbus_subscriber = modbus_sub_service.subscriber_builder().create()?;
+                    let modbus_subscriber = Arc::new(modbus_subscriber);
             
                     loop {
                         {
@@ -88,8 +99,23 @@ async fn main() {
                                 local.area_1_lights = sample.payload().area_1_lights;
                                 local.area_2_lights = sample.payload().area_2_lights;
                             }
+
                             if subscriber.receive().unwrap().is_none() {
-                                log::warn!("not getting anything!")
+                                log::warn!("[ipc ecat] not getting anything!")
+                            }
+
+                            while let Some(sample) = modbus_subscriber.receive()? {
+                                log::info!("[Modbus] AN0: {}, DI0: {}",
+                                    sample.payload().modbus_ai_0,
+                                    sample.payload().modbus_di_0,
+                                );
+
+                                local.modbus_ai_0 = sample.payload().modbus_ai_0;
+                                local.modbus_di_0 = sample.payload().modbus_di_0;
+                            }
+
+                            if modbus_subscriber.receive().unwrap().is_none() {
+                                log::warn!("[ipc modbus] not getting anything!")
                             }
                         }
 

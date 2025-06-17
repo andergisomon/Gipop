@@ -2,9 +2,7 @@ use ethercrab::{
     std::ethercat_now, MainDevice, MainDeviceConfig, PduStorage, RetryBehaviour, SubDeviceGroup, SubDeviceRef, Timeouts
 };
 use std::{
-    num::Wrapping,
-    fs::{File, OpenOptions}, sync::{atomic::{AtomicBool, Ordering}, Arc, RwLock, LazyLock, Mutex}, time::{Duration, Instant},
-    io::Write
+    any, fs::{File, OpenOptions}, io::Write, num::Wrapping, sync::{atomic::{AtomicBool, Ordering}, Arc, LazyLock, Mutex, RwLock}, time::{Duration, Instant}
 };
 use bitvec::prelude::*;
 use anyhow::{anyhow, Result};
@@ -22,14 +20,14 @@ struct JitterSample {
     jitter: i64, // signed to show early/late
 }
 
-pub static JITTER_BUF: LazyLock<Mutex<Vec<JitterSample>>> = LazyLock::new(|| Mutex::new(Vec::with_capacity(50_000)));
+pub static JITTER_BUF: LazyLock<Mutex<Vec<JitterSample>>> = LazyLock::new(|| Mutex::new(Vec::with_capacity(10_000)));
 
 pub fn start_jitter_exporter() {
     smol::spawn(async {
         // Wait N seconds before exporting
-        smol::Timer::after(Duration::from_secs(600)).await;
+        smol::Timer::after(Duration::from_secs(420)).await;
 
-        let filename = "jitter_export.csv";
+        let filename = "jitter_sample.csv";
         let file = File::create(filename).expect("Unable to create CSV file");
         let mut writer = csv::Writer::from_writer(file);
 
@@ -185,9 +183,18 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     let subscriber: subscriber::Subscriber<ipc::Service, IpcDataToPlc, ()> = sub_service.subscriber_builder().create()?;
     let subscriber = Arc::new(subscriber);
 
+    let modbus_sub_node = NodeBuilder::new().create::<ipc::Service>()?;
+    let modbus_sub_service = modbus_sub_node
+    .service_builder(&"modbus_ipc_tx".try_into()?)
+    .publish_subscribe::<ModbusIpcDataTx>()
+    .open_or_create()?;
+
+    let modbus_subscriber: subscriber::Subscriber<ipc::Service, ModbusIpcDataTx, ()> = modbus_sub_service.subscriber_builder().create()?;
+    let modbus_subscriber = Arc::new(modbus_subscriber);
+
     let ts = term_states.clone();
     let mut counter: u64 = 0;
-    let cycle = Duration::from_millis(10);
+    let cycle = Duration::from_millis(10); // 10ms PLC cycle time
     let mut next_time = Instant::now() + cycle;
 
     if measure_jitter {
@@ -317,9 +324,10 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
             }
         }
 
+        opcua_ipc_to_plc(subscriber.clone())?;
+        modbus_ipc_to_logic(modbus_subscriber.clone())?;
         plc_execute_logic(ts.clone(), counter.clone());
         opcua_ipc_from_plc(ts.clone(), publisher.clone())?;
-        opcua_ipc_to_plc(subscriber.clone())?;
         
         // let payload = publisher.loan_uninit()?;
         // payload.write_payload(counter.clone()).send()?;
@@ -416,6 +424,18 @@ fn opcua_ipc_to_plc(subscriber: Arc<subscriber::Subscriber<ipc::Service, IpcData
 
         // Incoming to PLC: HMI command from shmem to local PLC state
         plc_data.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
+    }
+    Ok(())
+}
+
+fn modbus_ipc_to_logic(subscriber: Arc<subscriber::Subscriber<ipc::Service, ModbusIpcDataTx, ()>>) -> Result<(), anyhow::Error> {
+    while let Some(sample) = subscriber.receive()? {
+        let data = sample.payload();
+        let mut plc_data = LOCAL_PLC_DATA.write().unwrap();
+
+        // Incoming to PLC
+        plc_data.modbus_ai_0 = data.modbus_ai_0;
+        plc_data.modbus_di_0 = data.modbus_di_0;
     }
     Ok(())
 }

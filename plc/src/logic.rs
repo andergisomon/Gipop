@@ -27,6 +27,8 @@ pub struct LocalPlcData {
     pub area_1_lights: u32,
     pub area_2_lights: u32,
     pub area_1_lights_hmi_cmd: u32, // incoming to PLC
+    pub modbus_ai_0: f32,
+    pub modbus_di_0: u32,
 }
 
 // hmi cmd variables latch by default
@@ -43,7 +45,9 @@ impl LocalPlcData {
             status: 0,
             area_1_lights: 0,
             area_2_lights: 0,
-            area_1_lights_hmi_cmd: 0
+            area_1_lights_hmi_cmd: 0,
+            modbus_ai_0: 0.0,
+            modbus_di_0: 0,
         }
     }
 }
