@@ -78,6 +78,10 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
             last_cycle.area_1_lights_hmi_cmd = cmd.area_1_lights_hmi_cmd; // Must be reset to avoid conflict with EnOcean
         }
 
+        if cmd.modbus_di_0 == 1 {
+            write_all_channel_el2889(true, Arc::clone(&term_states));
+        }
+
         let blink = GVL.read().unwrap().blinkerlamps;
         if blink {
             if counter % 5 == 0 {

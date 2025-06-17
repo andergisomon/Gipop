@@ -1,7 +1,8 @@
+use env_logger::Env;
 use std::sync::{Arc, Mutex, LazyLock};
 mod ipc;
 use crate::ipc::*;
-use iceoryx2::{port::{publisher, subscriber}, prelude::*};
+use iceoryx2::{port::{client, publisher, subscriber}, prelude::*};
 use anyhow::{anyhow, Result};
 
 static SERVER_COPY: LazyLock<Mutex<IpcData>> = LazyLock::new(|| Mutex::new(IpcData {
@@ -18,7 +19,7 @@ fn modbus_ipc_init(publisher: Arc<iceoryx2::port::publisher::Publisher<iceoryx2:
     Ok(())
 }
 
-async fn client_app() -> Result<(), Box<dyn std::error::Error>> {
+async fn client_app() -> Result<(), anyhow::Error> {
     use tokio_modbus::prelude::*;
 
     let socket_addr = "172.30.40.69:502".parse().unwrap();
@@ -32,27 +33,35 @@ async fn client_app() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut local = SERVER_COPY.lock().unwrap();
 
-            local.modbus_ai_0 = f32::from(an_0[0] as u16);
+            local.modbus_ai_0 = f32::from(an_0[0] as u16) / 1000.0;
             local.modbus_di_0 = u32::from(di_0[0]);
+            log::info!("AI0: {:.03}, DI0: {}", local.modbus_ai_0, local.modbus_di_0);
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(22));
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    // println!("Disconnecting");
+    // TODO?: Handle disconnect
+    // log::info!("Disconnecting");
     // ctx.disconnect().await?;
     Ok(())
 }
 
 fn main() {
-    tokio::runtime::Builder::new_current_thread()
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .unwrap()
-        .block_on(async {
+        .unwrap();
+
+        rt.block_on(async {
 
             let local = tokio::task::LocalSet::new();
-            local.run_until(async move {
-        
+
+            let modbus_client_handle = tokio::task::spawn(client_app());
+
+            let ipc_handle = local.spawn_local(async move {
+
                 // Init IPC
                 let pub_node = NodeBuilder::new().create::<iceoryx2::prelude::ipc::Service>()?;
                 let pub_service = pub_node
@@ -111,18 +120,14 @@ fn main() {
                         sample.send()?;
                     }
                     
-                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    std::thread::sleep(std::time::Duration::from_millis(22));
                 }
                 Ok::<(), anyhow::Error>(())
-            }).await.expect("ipc task failed");
+            });
+
+            let _ = local.run_until(ipc_handle).await.expect("ipc error");
+            let _ = modbus_client_handle.await.expect("modbus client error");
+
         }
     );
-
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async {
-            client_app().await.expect("client app error")
-        })
 }

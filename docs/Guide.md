@@ -109,6 +109,11 @@ cd /home/pi/Gipop/plc/ && sudo taskset -c 3 ./gipop_plc end0
 cd /home/pi/Gipop/opcua/bin && sudo RUST_LOG=debug ./opcua
 ```
 
+### Modbus driver
+```
+scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/modbus/target/aarch64-unknown-linux-gnu/debug/modbus pi@172.30.40.32:/home/pi/Gipop/modbus/
+```
+
 ### Kill GUI
 
 ```
@@ -139,3 +144,7 @@ Kill GUI and start PLC
 ```
 sudo systemctl isolate multi-user.target && cd /home/pi/Gipop/plc/ && sudo taskset -c 3 ./gipop_plc end0
 ```
+
+## Tip on using `cross`
+If you get a cryptic error trying to build with `cross` try running `cargo clean`.
+
