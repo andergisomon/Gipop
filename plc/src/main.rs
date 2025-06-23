@@ -8,6 +8,20 @@ use libc::*;
 use core_affinity::*;
 
 fn main() {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+
+    let res = unsafe {
+        mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE)
+    };
+    match res {
+        0 => {
+            log::info!("mlockall() returned 0");
+        }
+        _ => {
+            log::error!("mlockall() failed, returned {}", res);
+        }
+    }
+
     let _ = core_affinity::set_for_current(CoreId {id: 2});
     let thread_param = sched_param {sched_priority: 90};
     let sched_res = unsafe {
@@ -21,7 +35,6 @@ fn main() {
             log::error!("main: sched_setscheduler failed: Returned {}", sched_res);
         }
     }
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let args: Vec<_> = env::args().collect();
 
