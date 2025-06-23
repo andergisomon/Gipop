@@ -1,6 +1,7 @@
 use ethercrab::{
     std::ethercat_now, MainDevice, MainDeviceConfig, PduStorage, RetryBehaviour, SubDeviceGroup, SubDeviceRef, Timeouts
 };
+use serde::de;
 use std::{
     any, fs::{File, OpenOptions}, io::Write, num::Wrapping, sync::{atomic::{AtomicBool, Ordering}, Arc, LazyLock, Mutex, RwLock}, time::{Duration, Instant}
 };
@@ -13,6 +14,8 @@ use hal::term_cfg::*;
 use crate::logic::*; // Business logic execution; Calls to methods to accomplish business logic
 use crate::ipc::*;
 use iceoryx2::{port::{publisher, subscriber}, prelude::*};
+use libc::*;
+use core_affinity::*;
 
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 struct JitterSample {
@@ -42,6 +45,9 @@ pub fn start_jitter_exporter() {
     }).detach();
 }
 
+const DEADLINE_MISSES_LIMIT: u64 = u64::max_value();
+const RESPONSE_MARGIN: u64 = 18_000;
+const PDU_TIMEOUT: u64 = 1_000_000;
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
 const MAX_PDU_DATA: usize = PduStorage::element_size(1100); /// Max PDU data payload size - set this to the max PDI size or higher.
 const MAX_FRAMES: usize = 16; /// Max no. of EtherCAT frames that can be in flight at any one time.
@@ -49,6 +55,20 @@ const PDI_LEN: usize = 64; /// Max total PDI length.
 static PDU_STORAGE: PduStorage<MAX_FRAMES, MAX_PDU_DATA> = PduStorage::new();
 
 pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Result<(), anyhow::Error> {
+    let _ = core_affinity::set_for_current(CoreId {id: 2});
+
+    let thread_param = sched_param {sched_priority: 95};
+    let sched_res = unsafe {
+        sched_setscheduler(0, SCHED_FIFO, &thread_param)
+    };
+    match sched_res {
+        0 => {
+            log::info!("entry_loop: sched_setscheduler call returned 0");
+        },
+        _ => {
+            log::error!("entry_loop: sched_setscheduler failed: Returned {}", sched_res);
+        }
+    }
 
     let network_interface = network_interface.to_string();
     
@@ -57,24 +77,40 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     let maindevice = Arc::new(MainDevice::new(
         pdu_loop,
         Timeouts { // BK coupler is a bit sluggish
-            state_transition: Duration::from_millis(20_000), // Other values that seem to work: 5000, 15_000
-            pdu: Duration::from_micros(20_000), // Can try 50_000
+            state_transition: Duration::from_millis(20_000),
+            pdu: Duration::from_micros(PDU_TIMEOUT),
             eeprom: Duration::from_millis(10), // Can try 100
-            wait_loop_delay: Duration::from_millis(2),
+            wait_loop_delay: Duration::from_millis(5),
             mailbox_echo: Duration::from_millis(600), // Set to 100 in TwinCAT
-            mailbox_response: Duration::from_millis(6000), // Set to 6000 in TwinCAT. Can try 25_000
+            mailbox_response: Duration::from_millis(6_000), // Set to 6000 in TwinCAT. Can try 25_000
         },
-        MainDeviceConfig {retry_behaviour: RetryBehaviour::Count(10), ..Default::default()}
+        MainDeviceConfig {retry_behaviour: RetryBehaviour::Count(127), ..Default::default()}
     ));
 
     std::thread::Builder::new()
     .name("EthercatTxRxThread".to_owned())
     .spawn(move || {
+        let _ = core_affinity::set_for_current(CoreId {id: 3});
+
+        let thread_param = sched_param {sched_priority: 95};
+        let sched_res = unsafe {
+            sched_setscheduler(0, SCHED_FIFO, &thread_param)
+        };
+        match sched_res {
+            0 => {
+                log::info!("EthercatTxRxThread: sched_setscheduler call returned 0");
+            },
+            _ => {
+                log::error!("EthercatTxRxThread: sched_setscheduler failed: Returned {}", sched_res);
+            }
+        }
+
         let runtime = smol::LocalExecutor::new();
         let _ = smol::block_on(runtime.run(async {
-            ethercrab::std::tx_rx_task(&network_interface, tx, rx)
-                .expect("spawn TX/RX task")
-                .await
+            // ethercrab::std::tx_rx_task(&network_interface, tx, rx)
+            //     .expect("spawn TX/RX task")
+            //     .await
+            ethercrab::std::tx_rx_task_io_uring(&network_interface, tx, rx)
         }));
     })
     .expect("build TX/RX thread");
@@ -196,8 +232,10 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     let mut counter: u64 = 0;
     let cycle = Duration::from_millis(10); // 10ms PLC cycle time
     let mut next_time = Instant::now() + cycle;
+    let mut deadline_misses: u64 = 0;
 
     if measure_jitter {
+        log::warn!("Jitter measurement enabled!");
         start_jitter_exporter();
     }
     opcua_init_ipc_from_plc(publisher.clone())?; // Very important, without this there will be UB!!!
@@ -223,7 +261,10 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
         // panic="abort" because this loop can still somehow recover from this panic
         match group.tx_rx(&maindevice).await {
             Ok(_) => {}
-            Err(e) => {log::error!(" ⚠️ MainDevice determinism Lost! PDU Timeout: {:?}", e)}
+            Err(e) => {
+                log::error!(" ⚠️ MainDevice determinism Lost! PDU Timeout: {:?}", e);
+                break;
+            }
         }
 
         // Physical Input Terminal --> Program Code Input Terminal Object
@@ -328,19 +369,26 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
         modbus_ipc_to_logic(modbus_subscriber.clone())?;
         plc_execute_logic(ts.clone(), counter.clone());
         opcua_ipc_from_plc(ts.clone(), publisher.clone())?;
-        
-        // let payload = publisher.loan_uninit()?;
-        // payload.write_payload(counter.clone()).send()?;
 
         counter = counter.wrapping_add(1);
         next_time += cycle;
 
         let now = Instant::now();
         if next_time > now {
-            smol::Timer::at(next_time).await;
+            std::thread::sleep(next_time.saturating_duration_since(now));
         } else {
+            deadline_misses += 1;
             let lag = now.duration_since(next_time);
             log::warn!(" ⚠️ Time determinism lost!\nPLC task lagging by {}us. Specified cycle time: {}ms", lag.as_micros(), cycle.clone().as_millis() as i64);
+            log::warn!("Cycle time misses counter: {}/{}", deadline_misses, DEADLINE_MISSES_LIMIT);
+            if deadline_misses >= DEADLINE_MISSES_LIMIT || lag.as_micros() as u64 > PDU_TIMEOUT - RESPONSE_MARGIN {
+                if lag.as_micros() as u64 > PDU_TIMEOUT - RESPONSE_MARGIN {
+                    log::error!("Initiating EtherCAT and PLC logic shutdown, Lag exceeds response margin of {}, with PDU_TIMEOUT of {}", RESPONSE_MARGIN, PDU_TIMEOUT);
+                    // break;
+                }
+                log::error!("Initiating EtherCAT and PLC logic shutdown, DEADLINE_MISSES_LIMIT reached");
+                // break;
+            }
         }
     }
 

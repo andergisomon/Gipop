@@ -4,8 +4,23 @@ mod ipc;
 pub mod logic;
 use std::env;
 use thread_priority::*;
+use libc::*;
+use core_affinity::*;
 
-fn main() { // opcua setup + config + shutdown should be done here
+fn main() {
+    let _ = core_affinity::set_for_current(CoreId {id: 2});
+    let thread_param = sched_param {sched_priority: 90};
+    let sched_res = unsafe {
+        sched_setscheduler(0, SCHED_FIFO, &thread_param)
+    };
+    match sched_res {
+        0 => {
+            log::info!("main: sched_setscheduler call returned 0");
+        },
+        _ => {
+            log::error!("main: sched_setscheduler failed: Returned {}", sched_res);
+        }
+    }
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let args: Vec<_> = env::args().collect();
@@ -29,14 +44,19 @@ fn main() { // opcua setup + config + shutdown should be done here
     };
 
     let handle = std::thread::spawn(move || {
+        let _ = core_affinity::set_for_current(CoreId {id: 2});
 
-        let set_priority_result = set_current_thread_priority(
-            ThreadPriority::Max,
-        );  
-
-        match set_priority_result {
-            Ok(_) => log::info!("set thread prio to MAX"),
-            Err(e) => log::error!("failed to set thread prio to MAX: {:?}.", e),
+        let thread_param = sched_param {sched_priority: 95};
+        let sched_res = unsafe {
+            sched_setscheduler(0, SCHED_FIFO, &thread_param)
+        };
+        match sched_res {
+            0 => {
+                log::info!("main: sched_setscheduler call returned 0");
+            },
+            _ => {
+                log::error!("main: sched_setscheduler failed: Returned {}", sched_res);
+            }
         }
 
         smol::block_on(ctrl_loop::entry_loop(&network_interface, measure_jitter))

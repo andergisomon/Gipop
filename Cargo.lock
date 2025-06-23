@@ -459,6 +459,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "core_affinity"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a034b3a7b624016c6e13f5df875747cc25f884156aad2abd12b6c46797971342"
+dependencies = [
+ "libc",
+ "num_cpus",
+ "winapi",
+]
+
+[[package]]
 name = "crc"
 version = "3.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -844,6 +855,7 @@ dependencies = [
  "async-io",
  "bitvec",
  "bytemuck",
+ "core_affinity",
  "csv",
  "enum-iterator",
  "env_logger",
@@ -851,6 +863,7 @@ dependencies = [
  "futures-lite",
  "hal",
  "iceoryx2",
+ "libc",
  "log",
  "memmap2",
  "serde",
@@ -1222,9 +1235,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.172"
+version = "0.2.174"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
+checksum = "1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776"
 
 [[package]]
 name = "libloading"
@@ -1347,6 +1360,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "num_cpus"
+version = "1.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
+dependencies = [
+ "hermit-abi 0.5.0",
+ "libc",
+]
+
+[[package]]
 name = "object"
 version = "0.36.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1426,12 +1449,14 @@ dependencies = [
  "async-io",
  "bitvec",
  "bytemuck",
+ "core_affinity",
  "csv",
  "enum-iterator",
  "env_logger",
  "ethercrab",
  "hal",
  "iceoryx2",
+ "libc",
  "log",
  "memmap2",
  "serde",
