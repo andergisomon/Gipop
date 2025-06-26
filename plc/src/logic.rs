@@ -1,10 +1,8 @@
-use enum_iterator::last;
 // For getting read/write locks to terminal objects in PLC memory
 use hal::io_defs::*;
 use hal::term_cfg::*;
 use hal::enocean_driver::*;
 use std::sync::{Arc, RwLock, LazyLock};
-use std::fs::OpenOptions;
 
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
 

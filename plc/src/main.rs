@@ -3,7 +3,6 @@ pub mod ctrl_loop;
 mod ipc;
 pub mod logic;
 use std::env;
-use thread_priority::*;
 use libc::*;
 use core_affinity::*;
 

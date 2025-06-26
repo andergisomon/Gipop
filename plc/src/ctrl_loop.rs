@@ -1,12 +1,11 @@
 use ethercrab::{
-    std::ethercat_now, MainDevice, MainDeviceConfig, PduStorage, RetryBehaviour, SubDeviceGroup, SubDeviceRef, Timeouts
+    std::ethercat_now, MainDevice, MainDeviceConfig, PduStorage, RetryBehaviour, Timeouts
 };
-use serde::de;
 use std::{
-    any, fs::{File, OpenOptions}, io::Write, num::Wrapping, sync::{atomic::{AtomicBool, Ordering}, Arc, LazyLock, Mutex, RwLock}, time::{Duration, Instant}
+    fs::File, sync::{atomic::{AtomicBool, Ordering}, Arc, LazyLock, Mutex, RwLock}, time::{Duration, Instant}
 };
 use bitvec::prelude::*;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 // For getting read/write locks to terminal objects in PLC memory
 use hal::io_defs::*;
@@ -23,12 +22,13 @@ struct JitterSample {
     jitter: i64, // signed to show early/late
 }
 
-pub static JITTER_BUF: LazyLock<Mutex<Vec<JitterSample>>> = LazyLock::new(|| Mutex::new(Vec::with_capacity(10_000)));
+static JITTER_BUF: LazyLock<Mutex<Vec<JitterSample>>> = LazyLock::new(|| Mutex::new(Vec::with_capacity(10_000)));
 
 pub fn start_jitter_exporter() {
     smol::spawn(async {
         // Wait N seconds before exporting
-        smol::Timer::after(Duration::from_secs(420)).await;
+        smol::Timer::after(Duration::from_secs(15*60)).await;
+        log::warn!(" ⚠️ Risk of temporary loss of determinism; writing to file on hot thread...");
 
         let filename = "jitter_sample.csv";
         let file = File::create(filename).expect("Unable to create CSV file");
@@ -40,8 +40,10 @@ pub fn start_jitter_exporter() {
             }
         }
 
-        writer.flush().expect("Flush failed");
-        println!("✅ Jitter data exported to {}", filename);
+        match writer.flush() {
+            Ok(()) => {log::info!(" ✅ Jitter data exported to {}", filename);},
+            Err(_) => {log::error!("Failed to export data")}
+        };
     }).detach();
 }
 
@@ -233,6 +235,9 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     let cycle = Duration::from_millis(10); // 10ms PLC cycle time
     let mut next_time = Instant::now() + cycle;
     let mut deadline_misses: u64 = 0;
+    let mut max_jit_us: i64 = 0;
+    let mut earlybird_us: i64 = cycle.as_micros() as i64;
+    let mut earliest_bird_us: i64 = earlybird_us;
 
     if measure_jitter {
         log::warn!("Jitter measurement enabled!");
@@ -246,9 +251,9 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
             break;
         }
         // Measure jitter
+        let now = Instant::now();
+        let jitter = now.duration_since(next_time);
         if measure_jitter {
-            let now = Instant::now();
-            let jitter = now.duration_since(next_time);
             if let Ok(mut buf) = JITTER_BUF.try_lock() {
                 buf.push(JitterSample {
                     cycle: counter,
@@ -257,12 +262,22 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
             }
         }
 
-        // Honestly any kind of failure here should terminate the entire PLC program, make sure to set
-        // panic="abort" because this loop can still somehow recover from this panic
+        // log max jitter, print out after break
+        if jitter.as_micros() as i64 > max_jit_us {
+            max_jit_us = jitter.as_micros() as i64;
+        }
+
+        // log the earliest a cycle's ever been, print out after break
+        if earlybird_us < earliest_bird_us {
+            earliest_bird_us = earlybird_us;
+        }
+
+        // it's still possible that the MainDevice becomes so unresponsive that it can't command the ESCs to go into INIT;
+        // in which case, the ESC takes over and declares comms error. at that point, it's game over.
         match group.tx_rx(&maindevice).await {
             Ok(_) => {}
             Err(e) => {
-                log::error!(" ⚠️ MainDevice determinism Lost! PDU Timeout: {:?}", e);
+                log::error!(" 🛑 MainDevice determinism Lost! PDU Timeout: {:?}", e);
                 break;
             }
         }
@@ -375,6 +390,7 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
 
         let now = Instant::now();
         if next_time > now {
+            earlybird_us = (next_time - now).as_micros() as i64;
             std::thread::sleep(next_time.saturating_duration_since(now));
         } else {
             deadline_misses += 1;
@@ -400,6 +416,9 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
 
     let _group = group.into_init(&maindevice).await.expect("PRE-OP -> INIT");
     log::info!("PRE-OP -> INIT, shutdown complete");
+
+    log::info!("Max jitter recorded: {}μs", max_jit_us);
+    log::info!("Most sleep a cycle's ever gotten: {}μs", earliest_bird_us);
 
     Ok(())
 }
