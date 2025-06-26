@@ -73,7 +73,6 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     }
 
     let network_interface = network_interface.to_string();
-    
     let (tx, rx, pdu_loop) = PDU_STORAGE.try_split().expect("can only split once");
 
     let maindevice = Arc::new(MainDevice::new(
@@ -221,6 +220,15 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     let subscriber: subscriber::Subscriber<ipc::Service, IpcDataToPlc, ()> = sub_service.subscriber_builder().create()?;
     let subscriber = Arc::new(subscriber);
 
+    let modbus_pub_node = NodeBuilder::new().create::<ipc::Service>()?;
+    let modbus_pub_service = modbus_pub_node
+    .service_builder(&"modbus_ipc_rx".try_into()?)
+    .publish_subscribe::<ModbusIpcDataRx>()
+    .open_or_create()?;
+
+    let modbus_publisher: publisher::Publisher<ipc::Service, ModbusIpcDataRx, ()> = modbus_pub_service.publisher_builder().create()?;
+    let modbus_publisher = Arc::new(modbus_publisher);
+
     let modbus_sub_node = NodeBuilder::new().create::<ipc::Service>()?;
     let modbus_sub_service = modbus_sub_node
     .service_builder(&"modbus_ipc_tx".try_into()?)
@@ -243,7 +251,9 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
         log::warn!("Jitter measurement enabled!");
         start_jitter_exporter();
     }
-    opcua_init_ipc_from_plc(publisher.clone())?; // Very important, without this there will be UB!!!
+    // Very important, without these IPC inits, there will be UB!!!
+    opcua_init_ipc_from_plc(publisher.clone())?; 
+    modbus_init_ipc_from_logic(modbus_publisher.clone())?;
     // Enter the primary loop
     loop {
         if Arc::clone(&shutdown).load(Ordering::Relaxed) {
@@ -382,6 +392,7 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
 
         opcua_ipc_to_plc(subscriber.clone())?;
         modbus_ipc_to_logic(modbus_subscriber.clone())?;
+        modbus_ipc_from_logic(modbus_publisher.clone())?;
         plc_execute_logic(ts.clone(), counter.clone());
         opcua_ipc_from_plc(ts.clone(), publisher.clone())?;
 
@@ -419,7 +430,6 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
 
     log::info!("Max jitter recorded: {}μs", max_jit_us);
     log::info!("Most sleep a cycle's ever gotten: {}μs", earliest_bird_us);
-
     Ok(())
 }
 
@@ -504,5 +514,34 @@ fn modbus_ipc_to_logic(subscriber: Arc<subscriber::Subscriber<ipc::Service, Modb
         plc_data.modbus_ai_0 = data.modbus_ai_0;
         plc_data.modbus_di_0 = data.modbus_di_0;
     }
+    Ok(())
+}
+
+// Very important, call once before entering ctrl loop to initialize shared ipc types to default values
+// shared ipc types must implement the PlacementDefault trait
+fn modbus_init_ipc_from_logic(publisher: Arc<publisher::Publisher<ipc::Service, ModbusIpcDataRx, ()>>) -> Result<(), anyhow::Error> {
+    let mut sample = publisher.loan_uninit()?;
+    unsafe { ModbusIpcDataRx::placement_default(sample.payload_mut().as_mut_ptr()) };
+    Ok(())
+}
+
+/// ⚠️ **UB Warning!** ⚠️ Compiler cannot prove safety: Make sure `modbus_init_ipc_from_logic()` has been called before calling this function
+fn modbus_ipc_from_logic(publisher: Arc<publisher::Publisher<ipc::Service, ModbusIpcDataRx, ()>>) -> Result<(), anyhow::Error> {
+    let sample = publisher.loan_uninit()?;
+
+    // TODO? rip out this redundant copying?
+    // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
+    // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
+    let plc_data = LOCAL_PLC_DATA.read().unwrap();
+
+    // ⚠️UB Warning!⚠️ Compiler cannot prove safety: Make sure modbus_init_ipc_from_logic() has been called
+    let mut sample = unsafe { sample.assume_init() };
+    let data = sample.payload_mut();
+
+    {
+        data.modbus_do_0 = plc_data.modbus_do_0;
+    }
+    sample.send()?;
+
     Ok(())
 }

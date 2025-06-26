@@ -2,8 +2,8 @@ use env_logger::Env;
 use std::sync::{Arc, Mutex, LazyLock};
 mod ipc;
 use crate::ipc::*;
-use iceoryx2::{port::{client, publisher, subscriber}, prelude::*};
-use anyhow::{anyhow, Result};
+use iceoryx2::{port::publisher, prelude::*};
+use anyhow::Result;
 
 static SERVER_COPY: LazyLock<Mutex<IpcData>> = LazyLock::new(|| Mutex::new(IpcData {
     modbus_ai_0: 0.0,
@@ -30,12 +30,29 @@ async fn client_app() -> Result<(), anyhow::Error> {
             // let iriv_io_id = ctx.read_input_registers(0x0f00, 1).await??;
             let an_0 = ctx.read_input_registers(0x0200, 1).await??;
             let di_0 = ctx.read_discrete_inputs(0x0000, 1).await??;
+            let mut val: u32 = 2;
 
-            let mut local = SERVER_COPY.lock().unwrap();
+            {
+                let state = SERVER_COPY.lock();
+    
+                if let Ok(mut local) = state {
+                    val = local.modbus_do_0;
+                    local.modbus_ai_0 = f32::from(an_0[0] as u16) / 1000.0;
+                    local.modbus_di_0 = u32::from(di_0[0]);
+                    log::info!("AI0: {:.03}, DI0: {}", local.modbus_ai_0, local.modbus_di_0);
+                }
+            }
 
-            local.modbus_ai_0 = f32::from(an_0[0] as u16) / 1000.0;
-            local.modbus_di_0 = u32::from(di_0[0]);
-            log::info!("AI0: {:.03}, DI0: {}", local.modbus_ai_0, local.modbus_di_0);
+            let val_b = match val {
+                0 => Some(false),
+                1 => Some(true),
+                _ => None,
+            };
+
+            if let Some(val) = val_b {
+                // ctx.write_single_coil(0x0100, val).await??;
+                ctx.write_multiple_coils(0x0100, &[val; 4]).await??;
+            }
         }
 
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -57,9 +74,7 @@ fn main() {
         rt.block_on(async {
 
             let local = tokio::task::LocalSet::new();
-
             let modbus_client_handle = tokio::task::spawn(client_app());
-
             let ipc_handle = local.spawn_local(async move {
 
                 // Init IPC
@@ -73,37 +88,29 @@ fn main() {
                 let publisher: Arc<publisher::Publisher<iceoryx2::prelude::ipc::Service, ModbusIpcDataTx, ()>> = Arc::new(publisher);
                 modbus_ipc_init(publisher.clone())?;
         
-                // let sub_node = NodeBuilder::new().create::<iceoryx2::prelude::ipc::Service>()?;
-                // let sub_service = sub_node
-                // .service_builder(&"modbus_ipc_from_logic".try_into()?)
-                // .publish_subscribe::<ModbusIpcDataFromLogic>()
-                // .open_or_create()?;
+                let sub_node = NodeBuilder::new().create::<iceoryx2::prelude::ipc::Service>()?;
+                let sub_service = sub_node
+                .service_builder(&"modbus_ipc_from_logic".try_into()?)
+                .publish_subscribe::<ModbusIpcDataRx>()
+                .open_or_create()?;
         
-                // let subscriber = sub_service.subscriber_builder().create()?;
-                // let subscriber = Arc::new(subscriber);
+                let subscriber = sub_service.subscriber_builder().create()?;
+                let subscriber = Arc::new(subscriber);
         
                 loop {
-                    // {
-                    //     let mut local = SERVER_COPY.lock().unwrap();
-                    //     while let Some(sample) = subscriber.receive()? {
-                    //         log::info!("[Via iceoryx2] temp: {}, humd: {}, stat: {}, ar1:{}, ar2:{}",
-                    //                     sample.payload().temperature,
-                    //                     sample.payload().humidity,
-                    //                     sample.payload().status,
-                    //                     sample.payload().area_1_lights,
-                    //                     sample.payload().area_2_lights,
-                    //         );
+                    {
+                        let mut local = SERVER_COPY.lock().unwrap();
+                        while let Some(sample) = subscriber.receive()? {
+                            log::info!("[Via iceoryx2] Modbus DO0: {}",
+                                        sample.payload().modbus_do_0,
+                            );
         
-                    //         local.temperature   = sample.payload().temperature;
-                    //         local.humidity      = sample.payload().humidity;
-                    //         local.status        = sample.payload().status;
-                    //         local.area_1_lights = sample.payload().area_1_lights;
-                    //         local.area_2_lights = sample.payload().area_2_lights;
-                    //     }
-                    //     if subscriber.receive().unwrap().is_none() {
-                    //         log::warn!("not getting anything!")
-                    //     }
-                    // }
+                            local.modbus_do_0   = sample.payload().modbus_do_0;
+                        }
+                        if subscriber.receive().unwrap().is_none() {
+                            log::warn!("not getting anything!")
+                        }
+                    }
 
                     {
                         let local = SERVER_COPY.lock().unwrap();

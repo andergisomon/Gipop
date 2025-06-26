@@ -5,7 +5,6 @@ use hal::enocean_driver::*;
 use std::sync::{Arc, RwLock, LazyLock};
 
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
-
 pub struct Gvl {
     pub blinkerlamps: bool
 }
@@ -17,7 +16,6 @@ impl Gvl {
         }
     }
 }
-
 pub struct LocalPlcData {
     pub temperature: f32,
     pub humidity: f32,
@@ -27,6 +25,7 @@ pub struct LocalPlcData {
     pub area_1_lights_hmi_cmd: u32, // incoming to PLC
     pub modbus_ai_0: f32,
     pub modbus_di_0: u32,
+    pub modbus_do_0: u32,
 }
 
 // hmi cmd variables latch by default
@@ -46,6 +45,7 @@ impl LocalPlcData {
             area_1_lights_hmi_cmd: 0,
             modbus_ai_0: 0.0,
             modbus_di_0: 0,
+            modbus_do_0: 0,
         }
     }
 }
@@ -85,9 +85,11 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
             if counter % 5 == 0 {
                 if read_area_1_lights(Arc::clone(&term_states)) == 1 {
                     write_all_channel_kl2889(Arc::clone(&term_states), false);
+                    write_modbus_do0(false);
                 }
                 else {
-                    write_all_channel_kl2889(Arc::clone(&term_states), true);   
+                    write_all_channel_kl2889(Arc::clone(&term_states), true);                    write_modbus_do0(false);
+                    write_modbus_do0(true);
                 }
             }
         }
@@ -194,5 +196,13 @@ fn write_all_channel_el2889(val: bool, term_states: Arc<RwLock<TermStates>>) {
 
     for idx in 0..el2889.num_of_channels {
         el2889.write(val, ChannelInput::Index(idx)).unwrap();
+    }
+}
+
+fn write_modbus_do0(val: bool) {
+    let mut state = LOCAL_PLC_DATA.write().unwrap();
+    match val {
+        false => {state.modbus_do_0 = 0},
+        true => {state.modbus_do_0 = 1}
     }
 }

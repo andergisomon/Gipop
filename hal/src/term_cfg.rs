@@ -324,7 +324,6 @@ impl Getter for DITerm {
         };
 
         let readout_cast = readout.deref().clone() as u8;
-
         Ok(ElectricalObservable::Simple(readout_cast))
     }
 }
@@ -390,7 +389,6 @@ impl Getter for DOTerm {
         };
 
         let readout_cast = readout.deref().clone() as u8;
-
         Ok(ElectricalObservable::Simple(readout_cast))
     }
 }
@@ -436,6 +434,7 @@ impl AITerm {
                 continue;
             }
         }
+        assert!(!(j == bits.len()-1 && j%4 == 0), "Contract broken: bits should be traversable by a square stride; Check the bits being refreshed");
 
         for i in 0..16*num_of_channels {
             self.ch_statuses.set(i, buf[i]);
@@ -451,6 +450,7 @@ impl AITerm {
                 continue;
             }
         }
+        assert!(!(j == bits.len()-1 && j%4 == 0), "Contract broken: bits should be traversable by a square stride; Check the bits being refreshed");
         
         for i in 0..16*num_of_channels {
             self.ch_values.set(i, buf[i]);
@@ -508,7 +508,6 @@ impl Checker for AITerm {
         for bit in ch_status.iter() {
             bits.push(*bit);
         }
-
         Some(Ok(bits))
     }
 }
