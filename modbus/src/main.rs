@@ -90,7 +90,7 @@ fn main() {
         
                 let sub_node = NodeBuilder::new().create::<iceoryx2::prelude::ipc::Service>()?;
                 let sub_service = sub_node
-                .service_builder(&"modbus_ipc_from_logic".try_into()?)
+                .service_builder(&"modbus_ipc_rx".try_into()?)
                 .publish_subscribe::<ModbusIpcDataRx>()
                 .open_or_create()?;
         
@@ -107,9 +107,9 @@ fn main() {
         
                             local.modbus_do_0   = sample.payload().modbus_do_0;
                         }
-                        if subscriber.receive().unwrap().is_none() {
-                            log::warn!("not getting anything!")
-                        }
+                        // if subscriber.receive().unwrap().is_none() {
+                        //     log::warn!("not getting anything!")
+                        // }
                     }
 
                     {

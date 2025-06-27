@@ -59,25 +59,27 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
     {
         enocean_sm(Arc::clone(&term_states));
 
-        let cmd = LOCAL_PLC_DATA.read().unwrap();
-        let mut last_cycle = LAST_CYCLE.write().unwrap();
+        { // Conditionals hold lock to LOCAL_PLC_DATA, there are other blocks that require lock to proceed
+            let cmd = LOCAL_PLC_DATA.read().unwrap();
+            let mut last_cycle = LAST_CYCLE.write().unwrap();
 
-        if cmd.area_1_lights_hmi_cmd == 2 && cmd.area_1_lights_hmi_cmd != last_cycle.area_1_lights_hmi_cmd {
-            // log::info!("Area 1 Lights Command On");
-            GVL.write().unwrap().blinkerlamps = true;
-            // write_all_channel_kl2889(Arc::clone(&term_states), true);
-            last_cycle.area_1_lights_hmi_cmd = cmd.area_1_lights_hmi_cmd; // Must be reset to avoid conflict with EnOcean
-        }
+            if cmd.area_1_lights_hmi_cmd == 2 && cmd.area_1_lights_hmi_cmd != last_cycle.area_1_lights_hmi_cmd {
+                // log::info!("Area 1 Lights Command On");
+                GVL.write().unwrap().blinkerlamps = true;
+                // write_all_channel_kl2889(Arc::clone(&term_states), true);
+                last_cycle.area_1_lights_hmi_cmd = cmd.area_1_lights_hmi_cmd; // Must be reset to avoid conflict with EnOcean
+            }
 
-        if cmd.area_1_lights_hmi_cmd == 1 && cmd.area_1_lights_hmi_cmd != last_cycle.area_1_lights_hmi_cmd {
-            // log::info!("Area 1 Lights Command Off");
-            GVL.write().unwrap().blinkerlamps = false;
-            // write_all_channel_kl2889(Arc::clone(&term_states), false);
-            last_cycle.area_1_lights_hmi_cmd = cmd.area_1_lights_hmi_cmd; // Must be reset to avoid conflict with EnOcean
-        }
+            if cmd.area_1_lights_hmi_cmd == 1 && cmd.area_1_lights_hmi_cmd != last_cycle.area_1_lights_hmi_cmd {
+                // log::info!("Area 1 Lights Command Off");
+                GVL.write().unwrap().blinkerlamps = false;
+                // write_all_channel_kl2889(Arc::clone(&term_states), false);
+                last_cycle.area_1_lights_hmi_cmd = cmd.area_1_lights_hmi_cmd; // Must be reset to avoid conflict with EnOcean
+            }
 
-        if cmd.modbus_di_0 == 1 {
-            write_all_channel_el2889(true, Arc::clone(&term_states));
+            if cmd.modbus_di_0 == 1 {
+                write_all_channel_el2889(true, Arc::clone(&term_states));
+            }
         }
 
         let blink = GVL.read().unwrap().blinkerlamps;
@@ -85,10 +87,12 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
             if counter % 5 == 0 {
                 if read_area_1_lights(Arc::clone(&term_states)) == 1 {
                     write_all_channel_kl2889(Arc::clone(&term_states), false);
+                    // BAD programming, write_modbus_do0 implicitly holds lock to LOCAL_PLC_DATA
                     write_modbus_do0(false);
                 }
                 else {
-                    write_all_channel_kl2889(Arc::clone(&term_states), true);                    write_modbus_do0(false);
+                    write_all_channel_kl2889(Arc::clone(&term_states), true);
+                    // BAD programming, write_modbus_do0 implicitly holds lock to LOCAL_PLC_DATA
                     write_modbus_do0(true);
                 }
             }
@@ -199,6 +203,7 @@ fn write_all_channel_el2889(val: bool, term_states: Arc<RwLock<TermStates>>) {
     }
 }
 
+/// 💩💩 BAD doodoo programming, `write_modbus_do0()` implicitly **holds lock to `LOCAL_PLC_DATA`**
 fn write_modbus_do0(val: bool) {
     let mut state = LOCAL_PLC_DATA.write().unwrap();
     match val {

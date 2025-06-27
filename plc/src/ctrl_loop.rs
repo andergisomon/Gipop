@@ -392,8 +392,8 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
 
         opcua_ipc_to_plc(subscriber.clone())?;
         modbus_ipc_to_logic(modbus_subscriber.clone())?;
-        modbus_ipc_from_logic(modbus_publisher.clone())?;
         plc_execute_logic(ts.clone(), counter.clone());
+        modbus_ipc_from_logic(modbus_publisher.clone())?;
         opcua_ipc_from_plc(ts.clone(), publisher.clone())?;
 
         counter = counter.wrapping_add(1);
@@ -529,19 +529,17 @@ fn modbus_init_ipc_from_logic(publisher: Arc<publisher::Publisher<ipc::Service, 
 fn modbus_ipc_from_logic(publisher: Arc<publisher::Publisher<ipc::Service, ModbusIpcDataRx, ()>>) -> Result<(), anyhow::Error> {
     let sample = publisher.loan_uninit()?;
 
-    // TODO? rip out this redundant copying?
-    // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
-    // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
-    let plc_data = LOCAL_PLC_DATA.read().unwrap();
-
     // ⚠️UB Warning!⚠️ Compiler cannot prove safety: Make sure modbus_init_ipc_from_logic() has been called
     let mut sample = unsafe { sample.assume_init() };
     let data = sample.payload_mut();
 
     {
+        // TODO? rip out this redundant copying?
+        // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
+        // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
+        let plc_data = LOCAL_PLC_DATA.read().unwrap();
         data.modbus_do_0 = plc_data.modbus_do_0;
     }
     sample.send()?;
-
     Ok(())
 }

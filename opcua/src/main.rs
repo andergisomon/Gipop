@@ -100,9 +100,9 @@ async fn main() {
                                 local.area_2_lights = sample.payload().area_2_lights;
                             }
 
-                            if subscriber.receive().unwrap().is_none() {
-                                log::warn!("[ipc ecat] not getting anything!")
-                            }
+                            // if subscriber.receive().unwrap().is_none() {
+                            //     log::warn!("[ipc ecat] not getting anything!")
+                            // }
 
                             while let Some(sample) = modbus_subscriber.receive()? {
                                 log::info!("[Modbus] AN0: {}, DI0: {}",
@@ -114,9 +114,9 @@ async fn main() {
                                 local.modbus_di_0 = sample.payload().modbus_di_0;
                             }
 
-                            if modbus_subscriber.receive().unwrap().is_none() {
-                                log::warn!("[ipc modbus] not getting anything!")
-                            }
+                            // if modbus_subscriber.receive().unwrap().is_none() {
+                            //     log::warn!("[ipc modbus] not getting anything!")
+                            // }
                         }
 
                         {
