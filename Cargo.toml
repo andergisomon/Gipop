@@ -14,7 +14,7 @@ path = "plc/src/main.rs"
 
 [dependencies]
 hal = {path = "hal"}
-ethercrab = { path = "/home/ander/SIIP_project/ethercrab-main/ethercrab" }
+ethercrab = { git = "https://github.com/ethercrab-rs/ethercrab.git", rev = "3057508d723fa3a5c46ed9925293e578328cd63b"}
 signal-hook = "0.3.17"
 tokio = { version = "1.33.0", features = [
     "rt-multi-thread",

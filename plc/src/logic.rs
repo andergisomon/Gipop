@@ -84,7 +84,7 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
 
         let blink = GVL.read().unwrap().blinkerlamps;
         if blink {
-            if counter % 5 == 0 {
+            if (counter+1) % 4 == 0 {
                 if read_area_1_lights(Arc::clone(&term_states)) == 1 {
                     write_all_channel_kl2889(Arc::clone(&term_states), false);
                     // BAD programming, write_modbus_do0 implicitly holds lock to LOCAL_PLC_DATA
@@ -99,6 +99,7 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
         }
         else { // Avoid logical race condition: If blinkerlamps == false, always make sure output inactive
             write_all_channel_kl2889(Arc::clone(&term_states), false);
+            write_modbus_do0(false);
         }
     }
 }

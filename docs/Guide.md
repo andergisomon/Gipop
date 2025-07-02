@@ -92,9 +92,13 @@ scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/o
 ```
 
 ### PLC binary
-
+Debug:
 ```
 scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/target/aarch64-unknown-linux-gnu/debug/gipop_plc pi@172.30.40.32:/home/pi/Gipop/plc
+```
+Release:
+```
+scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/target/aarch64-unknown-linux-gnu/release/gipop_plc pi@172.30.40.32:/home/pi/Gipop/plc
 ```
 
 ### Run PLC

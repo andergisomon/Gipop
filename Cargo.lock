@@ -729,7 +729,36 @@ dependencies = [
  "crc",
  "embassy-time",
  "embedded-io-async",
- "ethercrab-wire",
+ "ethercrab-wire 0.2.0",
+ "futures-lite",
+ "heapless",
+ "io-uring",
+ "libc",
+ "log",
+ "nix",
+ "pcap",
+ "pnet_datalink",
+ "sealed",
+ "slab",
+ "smallvec",
+ "smlang",
+ "spin",
+ "timerfd",
+]
+
+[[package]]
+name = "ethercrab"
+version = "0.6.0"
+source = "git+https://github.com/ethercrab-rs/ethercrab.git?rev=3057508d723fa3a5c46ed9925293e578328cd63b#3057508d723fa3a5c46ed9925293e578328cd63b"
+dependencies = [
+ "async-io",
+ "atomic-waker",
+ "atomic_enum",
+ "bitflags 2.9.0",
+ "crc",
+ "embassy-time",
+ "embedded-io-async",
+ "ethercrab-wire 0.2.0 (git+https://github.com/ethercrab-rs/ethercrab.git?rev=3057508d723fa3a5c46ed9925293e578328cd63b)",
  "futures-lite",
  "heapless",
  "io-uring",
@@ -750,13 +779,33 @@ dependencies = [
 name = "ethercrab-wire"
 version = "0.2.0"
 dependencies = [
- "ethercrab-wire-derive",
+ "ethercrab-wire-derive 0.2.0",
+ "heapless",
+]
+
+[[package]]
+name = "ethercrab-wire"
+version = "0.2.0"
+source = "git+https://github.com/ethercrab-rs/ethercrab.git?rev=3057508d723fa3a5c46ed9925293e578328cd63b#3057508d723fa3a5c46ed9925293e578328cd63b"
+dependencies = [
+ "ethercrab-wire-derive 0.2.0 (git+https://github.com/ethercrab-rs/ethercrab.git?rev=3057508d723fa3a5c46ed9925293e578328cd63b)",
  "heapless",
 ]
 
 [[package]]
 name = "ethercrab-wire-derive"
 version = "0.2.0"
+dependencies = [
+ "criterion",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
+]
+
+[[package]]
+name = "ethercrab-wire-derive"
+version = "0.2.0"
+source = "git+https://github.com/ethercrab-rs/ethercrab.git?rev=3057508d723fa3a5c46ed9925293e578328cd63b#3057508d723fa3a5c46ed9925293e578328cd63b"
 dependencies = [
  "criterion",
  "proc-macro2",
@@ -859,7 +908,7 @@ dependencies = [
  "csv",
  "enum-iterator",
  "env_logger",
- "ethercrab",
+ "ethercrab 0.6.0 (git+https://github.com/ethercrab-rs/ethercrab.git?rev=3057508d723fa3a5c46ed9925293e578328cd63b)",
  "futures-lite",
  "hal",
  "iceoryx2",
@@ -888,7 +937,7 @@ dependencies = [
  "bitvec",
  "enum-iterator",
  "env_logger",
- "ethercrab",
+ "ethercrab 0.6.0",
  "log",
  "signal-hook",
  "smol",
@@ -1453,7 +1502,7 @@ dependencies = [
  "csv",
  "enum-iterator",
  "env_logger",
- "ethercrab",
+ "ethercrab 0.6.0 (git+https://github.com/ethercrab-rs/ethercrab.git?rev=3057508d723fa3a5c46ed9925293e578328cd63b)",
  "hal",
  "iceoryx2",
  "libc",

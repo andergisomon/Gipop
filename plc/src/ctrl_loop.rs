@@ -1,5 +1,5 @@
 use ethercrab::{
-    std::ethercat_now, MainDevice, MainDeviceConfig, PduStorage, RetryBehaviour, Timeouts
+    std::ethercat_now, MainDevice, MainDeviceConfig, PduStorage, RetryBehaviour, Timeouts,
 };
 use std::{
     fs::File, sync::{atomic::{AtomicBool, Ordering}, Arc, LazyLock, Mutex, RwLock}, time::{Duration, Instant}
@@ -47,7 +47,7 @@ pub fn start_jitter_exporter() {
     }).detach();
 }
 
-const DEADLINE_MISSES_LIMIT: u64 = u64::max_value();
+const DEADLINE_MISSES_LIMIT: u64 = 20; // u64::max_value();
 const RESPONSE_MARGIN: u64 = 18_000;
 const PDU_TIMEOUT: u64 = 1_000_000;
 const MAX_SUBDEVICES: usize = 16; /// Max no. of SubDevices that can be stored. This must be a power of 2 greater than 1.
@@ -115,6 +115,8 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
         }));
     })
     .expect("build TX/RX thread");
+
+    std::thread::sleep(Duration::from_millis(200));
 
     let group = maindevice
     .init_single_group::<MAX_SUBDEVICES, PDI_LEN>(ethercat_now)
@@ -239,13 +241,6 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     let modbus_subscriber = Arc::new(modbus_subscriber);
 
     let ts = term_states.clone();
-    let mut counter: u64 = 0;
-    let cycle = Duration::from_millis(10); // 10ms PLC cycle time
-    let mut next_time = Instant::now() + cycle;
-    let mut deadline_misses: u64 = 0;
-    let mut max_jit_us: i64 = 0;
-    let mut earlybird_us: i64 = cycle.as_micros() as i64;
-    let mut earliest_bird_us: i64 = earlybird_us;
 
     if measure_jitter {
         log::warn!("Jitter measurement enabled!");
@@ -254,6 +249,14 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     // Very important, without these IPC inits, there will be UB!!!
     opcua_init_ipc_from_plc(publisher.clone())?; 
     modbus_init_ipc_from_logic(modbus_publisher.clone())?;
+
+    let mut counter: u64 = 0;
+    let cycle = Duration::from_micros(10000); // 10ms PLC cycle time
+    let mut next_time = Instant::now() + cycle;
+    let mut deadline_misses: u64 = 0;
+    let mut max_jit_us: i64 = 0;
+    let mut earlybird_us: i64 = cycle.as_micros() as i64;
+    let mut earliest_bird_us: i64 = earlybird_us;
     // Enter the primary loop
     loop {
         if Arc::clone(&shutdown).load(Ordering::Relaxed) {
@@ -406,15 +409,16 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
         } else {
             deadline_misses += 1;
             let lag = now.duration_since(next_time);
-            log::warn!(" ⚠️ Time determinism lost!\nPLC task lagging by {}us. Specified cycle time: {}ms", lag.as_micros(), cycle.clone().as_millis() as i64);
+            log::warn!(" ⚠️ Time determinism lost!\nPLC task lagging by {}us. Specified cycle time: {}ms", lag.as_micros(), (cycle.clone().as_micros() / 1000) as i64);
             log::warn!("Cycle time misses counter: {}/{}", deadline_misses, DEADLINE_MISSES_LIMIT);
-            if deadline_misses >= DEADLINE_MISSES_LIMIT || lag.as_micros() as u64 > PDU_TIMEOUT - RESPONSE_MARGIN {
+            // if deadline_misses >= DEADLINE_MISSES_LIMIT || lag.as_micros() as u64 > PDU_TIMEOUT - RESPONSE_MARGIN {
+            if deadline_misses >= DEADLINE_MISSES_LIMIT {
                 if lag.as_micros() as u64 > PDU_TIMEOUT - RESPONSE_MARGIN {
                     log::error!("Initiating EtherCAT and PLC logic shutdown, Lag exceeds response margin of {}, with PDU_TIMEOUT of {}", RESPONSE_MARGIN, PDU_TIMEOUT);
-                    // break;
+                    break;
                 }
                 log::error!("Initiating EtherCAT and PLC logic shutdown, DEADLINE_MISSES_LIMIT reached");
-                // break;
+                break;
             }
         }
     }

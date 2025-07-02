@@ -4,6 +4,7 @@ mod ipc;
 use crate::ipc::*;
 use iceoryx2::{port::publisher, prelude::*};
 use anyhow::Result;
+use libc::*;
 
 static SERVER_COPY: LazyLock<Mutex<IpcData>> = LazyLock::new(|| Mutex::new(IpcData {
     modbus_ai_0: 0.0,
@@ -65,6 +66,18 @@ async fn client_app() -> Result<(), anyhow::Error> {
 
 fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+
+    let res = unsafe {
+        mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE)
+    };
+    match res {
+        0 => {
+            log::info!("mlockall() returned 0");
+        }
+        _ => {
+            log::error!("mlockall() failed, returned {}", res);
+        }
+    }
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
