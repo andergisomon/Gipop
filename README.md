@@ -1,5 +1,5 @@
 # Gipop
-A virtual PLC written in Rust.
+A soft PLC written in Rust.
 <div align="center">
     <img src="docs/header_cropped.png" alt="Bornean Sun Bear" style="max-height: 200px;">
 </div>
