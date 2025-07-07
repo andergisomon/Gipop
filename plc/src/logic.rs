@@ -2,17 +2,19 @@
 use hal::io_defs::*;
 use hal::term_cfg::*;
 use hal::enocean_driver::*;
-use std::sync::{Arc, RwLock, LazyLock};
+use std::sync::{Arc, RwLock, LazyLock, RwLockWriteGuard};
 
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
 pub struct Gvl {
-    pub blinkerlamps: bool
+    pub blinkerlamps: bool,
+    pub rmt_ilock: bool, // Accept remote command interlock
 }
 
 impl Gvl {
     fn new() -> Self {
         Self {
-            blinkerlamps: false
+            blinkerlamps: false,
+            rmt_ilock: false
         }
     }
 }
@@ -26,6 +28,8 @@ pub struct LocalPlcData {
     pub modbus_ai_0: f32,
     pub modbus_di_0: u32,
     pub modbus_do_0: u32,
+    pub rmt_rag: u32,
+    pub rmt_area_2_lights: u32,
 }
 
 // hmi cmd variables latch by default
@@ -46,6 +50,8 @@ impl LocalPlcData {
             modbus_ai_0: 0.0,
             modbus_di_0: 0,
             modbus_do_0: 0,
+            rmt_rag: 0,
+            rmt_area_2_lights: 0,
         }
     }
 }
@@ -84,23 +90,53 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
 
         let blink = GVL.read().unwrap().blinkerlamps;
         if blink {
-            if (counter+1) % 4 == 0 {
+            if (counter+1) % 99 == 0 {
                 if read_area_1_lights(Arc::clone(&term_states)) == 1 {
                     write_all_channel_kl2889(Arc::clone(&term_states), false);
-                    // BAD programming, write_modbus_do0 implicitly holds lock to LOCAL_PLC_DATA
-                    write_modbus_do0(false);
+                    write_modbus_do0(false, LOCAL_PLC_DATA.write().unwrap());
                 }
                 else {
                     write_all_channel_kl2889(Arc::clone(&term_states), true);
                     // BAD programming, write_modbus_do0 implicitly holds lock to LOCAL_PLC_DATA
-                    write_modbus_do0(true);
+                    write_modbus_do0(true, LOCAL_PLC_DATA.write().unwrap());
                 }
             }
         }
         else { // Avoid logical race condition: If blinkerlamps == false, always make sure output inactive
             write_all_channel_kl2889(Arc::clone(&term_states), false);
-            write_modbus_do0(false);
+            write_modbus_do0(false, LOCAL_PLC_DATA.write().unwrap());
         }
+    }
+
+    {
+        // Set up read particular input channel here
+        // Write reading to Gvl.rmt_ilock
+        // only if Gvl.rmt_ilock then execute conditionally according to values of rmt_rag and rmt_area_2_lights
+        let rmt_cmd_ilock = read_rmt_cmd_ilock(Arc::clone(&term_states));
+        let local = LOCAL_PLC_DATA.write().unwrap();
+        let rmt_cmd_area_2_lights = local.rmt_area_2_lights;
+        let rmt_cmd_rag = local.rmt_rag;
+
+        let area_2_lights = match rmt_cmd_area_2_lights {
+            1 => true,
+            _ => false
+        };
+
+        if rmt_cmd_ilock {
+            if area_2_lights {
+                write_all_channel_el2889(true, Arc::clone(&term_states));
+            }
+            else {
+                write_all_channel_el2889(false, Arc::clone(&term_states));
+            }
+
+            // RAG remote command: Valid commands are values of 1 = Red, 2 = Amber, 3 = Green.
+            // Connect tower light channels to KL2889 channels 1-3.
+            if rmt_cmd_rag > 0 {
+                write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Index(rmt_cmd_rag as u8 - 1));
+            }
+        }
+
     }
 }
 
@@ -186,6 +222,17 @@ pub fn read_area_2_lights(term_states: Arc<RwLock<TermStates>>) -> u8 {
     return reading.pick_simple().unwrap()
 }
 
+pub fn read_rmt_cmd_ilock(term_states: Arc<RwLock<TermStates>>) -> bool {
+    let rd_guard = term_states.read().expect("get term_states read guard");
+    let el1889 = rd_guard.ebus_di_terms[0].write().expect("acquire EL1889 dyn heap write lock");
+
+    let reading = el1889.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
+    match reading.pick_simple().unwrap() {
+        1 => true,
+        _ => false
+    }
+}
+
 fn write_all_channel_kl2889(term_states: Arc<RwLock<TermStates>>, val: bool) {
     let wr_guard = term_states.write().expect("get term_states write guard");
     let mut kl2889 = wr_guard.kbus_terms[1].write().expect("get KL2889 write guard");
@@ -193,6 +240,13 @@ fn write_all_channel_kl2889(term_states: Arc<RwLock<TermStates>>, val: bool) {
     for idx in 0..kl2889.size_in_bits { // All 16 bits of KL2889
         kl2889.write(val, ChannelInput::Index(idx)).unwrap();
     }
+}
+
+fn write_channel_kl2889(term_states: Arc<RwLock<TermStates>>, val: bool, channel: ChannelInput) {
+    let wr_guard = term_states.write().expect("get term_states write guard");
+    let mut kl2889 = wr_guard.kbus_terms[1].write().expect("get KL2889 write guard");
+
+    kl2889.write(val, channel).unwrap();
 }
 
 fn write_all_channel_el2889(val: bool, term_states: Arc<RwLock<TermStates>>) {
@@ -204,9 +258,7 @@ fn write_all_channel_el2889(val: bool, term_states: Arc<RwLock<TermStates>>) {
     }
 }
 
-/// 💩💩 BAD doodoo programming, `write_modbus_do0()` implicitly **holds lock to `LOCAL_PLC_DATA`**
-fn write_modbus_do0(val: bool) {
-    let mut state = LOCAL_PLC_DATA.write().unwrap();
+fn write_modbus_do0(val: bool, mut state: RwLockWriteGuard<'_, LocalPlcData>) {
     match val {
         false => {state.modbus_do_0 = 0},
         true => {state.modbus_do_0 = 1}

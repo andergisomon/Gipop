@@ -11,9 +11,10 @@ use iceoryx2::{port::{publisher, subscriber}, prelude::*};
 
 use opcua::{server::{
     address_space::{AccessLevel, Variable, VariableBuilder}, diagnostics::NamespaceMetadata, node_manager::memory::{
-        simple_node_manager, InMemoryNodeManager, SimpleNodeManager, SimpleNodeManagerImpl
-    }, ServerBuilder, SubscriptionCache
-}, types::TimestampsToReturn};
+        simple_node_manager, InMemoryNodeManager, SimpleNodeManager, SimpleNodeManagerImpl},
+        ServerBuilder, SubscriptionCache
+    }
+};
 
 use opcua::types::{
     BuildInfo, DataValue, DateTime,
@@ -28,6 +29,8 @@ static SERVER_COPY: LazyLock<Mutex<IpcData>> = LazyLock::new(|| Mutex::new(IpcDa
     area_1_lights_hmi_cmd: 0,
     modbus_ai_0: 0.0,
     modbus_di_0: 0,
+    rmt_rag: 0,
+    rmt_area_2_lights: 0,
 }));
 
 // Very important, call once before entering ctrl loop to initialize shared ipc types to default values
@@ -128,6 +131,8 @@ async fn main() {
                             let data = sample.payload_mut();
 
                             data.area_1_lights_hmi_cmd = local.area_1_lights_hmi_cmd;
+                            data.rmt_rag = local.rmt_rag;
+                            data.rmt_area_2_lights = local.rmt_area_2_lights;
 
                             // Send payload
                             sample.send()?;
@@ -192,6 +197,8 @@ fn add_plc_variables(
     let ar1_lights_node = NodeId::new(ns, "area 1 lights");
     let ar2_lights_node = NodeId::new(ns, "area 2 lights");
     let ar1_lights_hmi_cmd_node = NodeId::new(ns, "area 1 lights hmi cmd");
+    let rmt_rag_node = NodeId::new(ns, "remote cmd RAG tower lights");
+    let rmt_area_2_lights_node = NodeId::new(ns, "remote cmd area 2 lights");
     // let plc_cycle_count = NodeId::new(ns, "plc cycle count");
 
     let address_space = manager.address_space();
@@ -217,6 +224,24 @@ fn add_plc_variables(
                 .access_level(AccessLevel::all())
                 .user_access_level(AccessLevel::all());
         let ar1_lights_hmi_cmd_node_var = builder.build();
+
+        let rmt_rag = // Remote PLC command for tower light
+            VariableBuilder::new(&ar1_lights_hmi_cmd_node, "remote cmd RAG tower lights", "remote cmd RAG tower lights")
+                .value(0_u32)
+                .data_type(DataTypeId::UInt32)
+                .historizing(false)
+                .access_level(AccessLevel::all())
+                .user_access_level(AccessLevel::all())
+                .build();
+        
+        let rmt_area_2_lights = // Remote PLC command for area 2 lights
+            VariableBuilder::new(&ar1_lights_hmi_cmd_node, "remote cmd area 2 lights", "remote cmd area 2 lights")
+                .value(0_u32)
+                .data_type(DataTypeId::UInt32)
+                .historizing(false)
+                .access_level(AccessLevel::all())
+                .user_access_level(AccessLevel::all())
+                .build();
         
         let _ = address_space.add_variables(
             vec![
@@ -227,6 +252,8 @@ fn add_plc_variables(
                 Variable::new(&ar2_lights_node, "area 2 lights", "area 2 lights", 0_u32),
                 // Variable::new(&plc_cycle_count, "plc cycle count", "plc cycle count", 0_u64),
                 ar1_lights_hmi_cmd_node_var,
+                rmt_rag,
+                rmt_area_2_lights
             ],
             &plc_folder_id,
         );
@@ -239,6 +266,20 @@ fn add_plc_variables(
             ar1_lights_hmi_cmd_node.clone(),
             move |val: DataValue, _| {
                 write_ar1_lights(val, &NumericRange::None)
+            }
+        );
+
+        manager.inner().add_write_callback(
+            rmt_rag_node.clone(),
+            move |val: DataValue, _| {
+                write_rmt_rag(val, &NumericRange::None)
+            }
+        );
+
+        manager.inner().add_write_callback(
+            rmt_area_2_lights_node.clone(),
+            move |val: DataValue, _| {
+                write_rmt_area_2_lights(val, &NumericRange::None)
             }
         );
 
@@ -332,6 +373,34 @@ fn write_ar1_lights(val: DataValue, _range: &NumericRange) -> StatusCode {
     match val.value {
         Some(Variant::UInt32(n)) => {
             local.area_1_lights_hmi_cmd = n;
+            StatusCode::Good
+        }
+        other => {
+            log::error!("Unexpected value type: {:?}", other);
+            StatusCode::Bad
+        }
+    }
+}
+
+fn write_rmt_rag(val: DataValue, _range: &NumericRange) -> StatusCode {
+    let mut local = SERVER_COPY.lock().unwrap();
+    match val.value {
+        Some(Variant::UInt32(n)) => {
+            local.rmt_rag = n;
+            StatusCode::Good
+        }
+        other => {
+            log::error!("Unexpected value type: {:?}", other);
+            StatusCode::Bad
+        }
+    }
+}
+
+fn write_rmt_area_2_lights(val: DataValue, _range: &NumericRange) -> StatusCode {
+    let mut local = SERVER_COPY.lock().unwrap();
+    match val.value {
+        Some(Variant::UInt32(n)) => {
+            local.rmt_area_2_lights = n;
             StatusCode::Good
         }
         other => {

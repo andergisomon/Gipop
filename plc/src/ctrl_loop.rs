@@ -251,7 +251,7 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     modbus_init_ipc_from_logic(modbus_publisher.clone())?;
 
     let mut counter: u64 = 0;
-    let cycle = Duration::from_micros(10000); // 10ms PLC cycle time
+    let cycle = Duration::from_micros(1000); // 10ms PLC cycle time
     let mut next_time = Instant::now() + cycle;
     let mut deadline_misses: u64 = 0;
     let mut max_jit_us: i64 = 0;
@@ -505,6 +505,8 @@ fn opcua_ipc_to_plc(subscriber: Arc<subscriber::Subscriber<ipc::Service, IpcData
 
         // Incoming to PLC: HMI command from shmem to local PLC state
         plc_data.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
+        plc_data.rmt_rag = data.rmt_rag;
+        plc_data.rmt_area_2_lights = data.rmt_area_2_lights;
     }
     Ok(())
 }

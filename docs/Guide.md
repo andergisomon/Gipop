@@ -52,7 +52,7 @@ cargo build --target aarch64-unknown-linux-gnu
 ```
 or
 ```
-cross build --target aarch64-unknown-linux-gnu
+cross build --target aarch64-unknown-linux-gnu --release
 ```
 
 In theory you can specify this in cargo.toml but in my testing it gets ignored for some reason.

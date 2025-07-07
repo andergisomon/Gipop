@@ -16,6 +16,8 @@ pub struct IpcDataFromPlc {
 #[repr(C)]
 pub struct IpcDataToPlc {
     pub area_1_lights_hmi_cmd: u32, // incoming to PLC
+    pub rmt_rag: u32,
+    pub rmt_area_2_lights: u32,
 }
 
 // A bit of an oddball. "Plc" here refers to the EtherCAT MainDevice as well, but the Modbus driver is run as a separate non-RT process

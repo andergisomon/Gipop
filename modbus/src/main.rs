@@ -38,7 +38,7 @@ async fn client_app() -> Result<(), anyhow::Error> {
     
                 if let Ok(mut local) = state {
                     val = local.modbus_do_0;
-                    local.modbus_ai_0 = f32::from(an_0[0] as u16) / 1000.0;
+                    local.modbus_ai_0 = f32::from(an_0[0] as u16) / 1000.0; // Analog voltage reading is natively in mV, analog current reading is natively in μA
                     local.modbus_di_0 = u32::from(di_0[0]);
                     log::info!("AI0: {:.03}, DI0: {}", local.modbus_ai_0, local.modbus_di_0);
                 }
