@@ -226,7 +226,7 @@ fn add_plc_variables(
         let ar1_lights_hmi_cmd_node_var = builder.build();
 
         let rmt_rag = // Remote PLC command for tower light
-            VariableBuilder::new(&ar1_lights_hmi_cmd_node, "remote cmd RAG tower lights", "remote cmd RAG tower lights")
+            VariableBuilder::new(&rmt_rag_node, "remote cmd RAG tower lights", "remote cmd RAG tower lights")
                 .value(0_u32)
                 .data_type(DataTypeId::UInt32)
                 .historizing(false)
@@ -235,7 +235,7 @@ fn add_plc_variables(
                 .build();
         
         let rmt_area_2_lights = // Remote PLC command for area 2 lights
-            VariableBuilder::new(&ar1_lights_hmi_cmd_node, "remote cmd area 2 lights", "remote cmd area 2 lights")
+            VariableBuilder::new(&rmt_area_2_lights_node, "remote cmd area 2 lights", "remote cmd area 2 lights")
                 .value(0_u32)
                 .data_type(DataTypeId::UInt32)
                 .historizing(false)
@@ -327,6 +327,22 @@ fn add_plc_variables(
                 )
             )
         });
+
+        manager.inner().add_read_callback(rmt_rag_node.clone(),
+            move |_, _, _| {
+                Ok(DataValue::new_now(
+                    fetch_rmt_rag()
+                )
+            )
+        });
+
+        manager.inner().add_read_callback(rmt_area_2_lights_node.clone(),
+            move |_, _, _| {
+                Ok(DataValue::new_now(
+                    fetch_rmt_area_2_lights()
+                )
+            )
+        });
         // manager.inner().add_read_callback(plc_cycle_count.clone(),
         // move |_, _, _| {
         //     Ok(DataValue::new_now(
@@ -366,6 +382,16 @@ fn fetch_ar2_lights() -> u32 {
 fn fetch_ar1_lights_hmi_cmd() -> u32 {
     let local = SERVER_COPY.lock().unwrap();
     return local.area_1_lights_hmi_cmd
+}
+
+fn fetch_rmt_rag() -> u32 {
+    let local = SERVER_COPY.lock().unwrap();
+    return local.rmt_rag
+}
+
+fn fetch_rmt_area_2_lights() -> u32 {
+    let local = SERVER_COPY.lock().unwrap();
+    return local.rmt_area_2_lights
 }
 
 fn write_ar1_lights(val: DataValue, _range: &NumericRange) -> StatusCode {

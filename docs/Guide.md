@@ -80,11 +80,14 @@ scp -i ~/gipop_plc /home/ander/SIIP_project/iiot_gateway/sunsuyon/.env pi@172.30
 ```
 
 ### OPCUA binary
-
+Debug:
 ```
 scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/opcua/target/aarch64-unknown-linux-gnu/debug/opcua pi@172.30.40.32:/home/pi/Gipop/opcua/bin
 ```
-
+Release:
+```
+scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/opcua/target/aarch64-unknown-linux-gnu/release/opcua pi@172.30.40.32:/home/pi/Gipop/opcua/bin
+```
 ### OPCUA server.conf
 
 ```

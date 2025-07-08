@@ -113,7 +113,7 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
         // Write reading to Gvl.rmt_ilock
         // only if Gvl.rmt_ilock then execute conditionally according to values of rmt_rag and rmt_area_2_lights
         let rmt_cmd_ilock = read_rmt_cmd_ilock(Arc::clone(&term_states));
-        let local = LOCAL_PLC_DATA.write().unwrap();
+        let mut local = LOCAL_PLC_DATA.write().unwrap();
         let rmt_cmd_area_2_lights = local.rmt_area_2_lights;
         let rmt_cmd_rag = local.rmt_rag;
 
@@ -135,6 +135,10 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
             if rmt_cmd_rag > 0 {
                 write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Index(rmt_cmd_rag as u8 - 1));
             }
+        }
+        else {
+            local.rmt_rag = 0;
+            local.rmt_area_2_lights = 0;
         }
 
     }
