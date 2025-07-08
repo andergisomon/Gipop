@@ -136,10 +136,6 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
                 write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Index(rmt_cmd_rag as u8 - 1));
             }
         }
-        else {
-            local.rmt_rag = 0;
-            local.rmt_area_2_lights = 0;
-        }
 
     }
 }

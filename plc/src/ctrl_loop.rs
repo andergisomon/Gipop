@@ -461,16 +461,17 @@ fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<publi
     {   
         let rd_guard = term_states.read().expect("Acquire TERM_EL3024 read guard"); // calling read() twice in this scope will cause a freeze
         let guard = rd_guard.ebus_ai_terms[0].read().unwrap();
-        let ch2_reading = guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
-        let current = ch2_reading.pick_current().unwrap();
-        let temp = ((current * 493.0)/1000.0 + 1.044) * 5.0; // offset can be calculated delta / 5.0
+        // let ch2_reading = guard.read(Some(ChannelInput::Channel(TermChannel::Ch2))).unwrap();
+        // let current = ch2_reading.pick_current().unwrap();
+        // let temp = ((current * 493.0)/1000.0 + 1.044) * 5.0; // offset can be calculated delta / 5.0
+        let temp = plc_data.modbus_ai_0 * 5.0;
         plc_data.temperature = temp;
         data.temperature = temp;
 
         let ch1_reading = guard.read(Some(ChannelInput::Channel(TermChannel::Ch1))).unwrap();
         let current = ch1_reading.pick_current().unwrap();
         let rh = ((current * 493.0)/1000.0 + 1.018) * 10.0; // offset can be calculated delta / 10.0
-        plc_data.temperature = rh;
+        plc_data.humidity = rh;
         data.humidity = rh;
 
         let ts_status = term_states.clone();
