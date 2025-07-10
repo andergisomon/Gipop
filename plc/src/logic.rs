@@ -7,14 +7,14 @@ use std::sync::{Arc, RwLock, LazyLock, RwLockWriteGuard};
 // PLC (business logic) program is defined here via methods that read/write to/from terminal objects in PLC memory
 pub struct Gvl {
     pub blinkerlamps: bool,
-    pub rmt_ilock: bool, // Accept remote command interlock
+    // pub rmt_ilock: bool, // Accept remote command interlock
 }
 
 impl Gvl {
     fn new() -> Self {
         Self {
             blinkerlamps: false,
-            rmt_ilock: false
+            // rmt_ilock: false,
         }
     }
 }
@@ -113,7 +113,7 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
         // Write reading to Gvl.rmt_ilock
         // only if Gvl.rmt_ilock then execute conditionally according to values of rmt_rag and rmt_area_2_lights
         let rmt_cmd_ilock = read_rmt_cmd_ilock(Arc::clone(&term_states));
-        let mut local = LOCAL_PLC_DATA.write().unwrap();
+        let local = LOCAL_PLC_DATA.write().unwrap();
         let rmt_cmd_area_2_lights = local.rmt_area_2_lights;
         let rmt_cmd_rag = local.rmt_rag;
 

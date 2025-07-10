@@ -9,6 +9,15 @@ use core_affinity::*;
 fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
+    // Warning! Compiler cannot know the consequence of using mlockall():
+    // Since we're specifying MCL_FUTURE, that means future allocations past this point are also locked.
+    // What this means is, if future allocations exceed the RLIMIT_MEMLOCK value of the system, any background allocations
+    // that Rust does will fail
+    // Read more here: https://www.man7.org/linux/man-pages/man2/setrlimit.2.html#:~:text=process%20may%20establish.-,RLIMIT_MEMLOCK,-This%20is%20the
+    // Generally you shouldn't use mlockall() at the start of an application, unless you know it's gonna be a simple and light process,
+    // like this 'PLC'. If you have to, you need to judiciously limit it to critical parts of your application.
+    // Since Rust's abstractions hide the exact syscalls it makes, if you face any weird issues down the line, you may need to dig
+    // deep into the std source code yourself. Or write it in Zig :)
     let res = unsafe {
         mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE)
     };
