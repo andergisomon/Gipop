@@ -11,6 +11,13 @@ pub struct IpcDataFromPlc {
     pub area_2_lights: u32,
 }
 
+#[derive(Debug, Clone, Copy, ZeroCopySend)]
+#[type_name("TgbotAlertFromPlc")]
+#[repr(C)]
+pub struct TgbotAlertFromPlc {
+    pub err_code: u32,
+}
+
 #[derive(Debug, Default, PlacementDefault, ZeroCopySend)]
 #[type_name("IpcDataToPlc")]
 #[repr(C)]

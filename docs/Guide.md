@@ -51,6 +51,7 @@ export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-none-linux-gnu-gcc
 cargo build --target aarch64-unknown-linux-gnu
 ```
 or
+
 ```
 cross build --target aarch64-unknown-linux-gnu --release
 ```
@@ -100,8 +101,14 @@ Debug:
 scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/target/aarch64-unknown-linux-gnu/debug/gipop_plc pi@172.30.40.32:/home/pi/Gipop/plc
 ```
 Release:
+
 ```
 scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/target/aarch64-unknown-linux-gnu/release/gipop_plc pi@172.30.40.32:/home/pi/Gipop/plc
+```
+
+### Telegram bot
+```
+scp -i ~/gipop_plc /home/ander/SIIP_project/iiot_gateway/sunsuyon/tgbot/zig-out/bin/gipop_tgbot pi@172.30.40.32:/home/pi/Gipop/sunsuyon/toburus
 ```
 
 ### Run PLC
@@ -117,8 +124,14 @@ cd /home/pi/Gipop/opcua/bin && sudo RUST_LOG=debug ./opcua
 ```
 
 ### Modbus driver
+Debug:
 ```
 scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/modbus/target/aarch64-unknown-linux-gnu/debug/modbus pi@172.30.40.32:/home/pi/Gipop/modbus/
+```
+
+Release:
+```
+scp -i ~/gipop_plc /home/ander/SIIP_project/ponuridangan/Gipop_proj_repo/Gipop/modbus/target/aarch64-unknown-linux-gnu/release/modbus pi@172.30.40.32:/home/pi/Gipop/modbus/
 ```
 
 ### Kill GUI

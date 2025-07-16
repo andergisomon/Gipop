@@ -30,6 +30,16 @@ pub struct LocalPlcData {
     pub modbus_do_0: u32,
     pub rmt_rag: u32,
     pub rmt_area_2_lights: u32,
+    pub err_code: ErrCodes,
+}
+
+#[derive(Clone, Copy)]
+pub enum ErrCodes {
+    Uninit = 255,
+    OllKorrect = 0,
+    Part1ReportDown,
+    Part2ReportDown,
+    Part1Part2ReportDown,
 }
 
 // hmi cmd variables latch by default
@@ -52,6 +62,7 @@ impl LocalPlcData {
             modbus_do_0: 0,
             rmt_rag: 0,
             rmt_area_2_lights: 0,
+            err_code: ErrCodes::Uninit,
         }
     }
 }
@@ -107,6 +118,26 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
             write_modbus_do0(false, LOCAL_PLC_DATA.write().unwrap());
         }
     }
+
+    {
+        let mut plc_data = LOCAL_PLC_DATA.write().unwrap();   
+        let res_ch1 = read_el1889(Arc::clone(&term_states), ChannelInput::Channel(TermChannel::Ch1));
+        let res_ch2 = read_el1889(Arc::clone(&term_states), ChannelInput::Channel(TermChannel::Ch2));
+
+        // Covers all four possible init states
+        if !res_ch1 && !res_ch2 {
+            plc_data.err_code = ErrCodes::OllKorrect
+        }
+        if !res_ch1 && res_ch2 {
+            plc_data.err_code = ErrCodes::Part2ReportDown
+        }
+        if !res_ch2 && res_ch1 {
+            plc_data.err_code = ErrCodes::Part1ReportDown
+        }
+        if res_ch1 && res_ch2 {
+            plc_data.err_code = ErrCodes::Part1Part2ReportDown
+        }
+    };
 
     {
         // Set up read particular input channel here
@@ -263,4 +294,20 @@ fn write_modbus_do0(val: bool, mut state: RwLockWriteGuard<'_, LocalPlcData>) {
         false => {state.modbus_do_0 = 0},
         true => {state.modbus_do_0 = 1}
     }
+}
+
+fn read_el1889(term_states: Arc<RwLock<TermStates>>, channel: ChannelInput) -> bool {
+    let rd_guard = term_states.read().expect("get term_states read guard");
+    let el2889 = rd_guard.ebus_di_terms[0].write().expect("acquire EL1889 dyn heap write lock");
+
+    let reading = el2889.read(Some(channel)).unwrap();
+    let reading = reading.pick_simple().unwrap();
+
+    let res = match reading {
+        1 => true,
+        0 => false,
+        _ => false
+    };
+
+    return res
 }

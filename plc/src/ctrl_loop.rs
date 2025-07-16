@@ -2,7 +2,7 @@ use ethercrab::{
     std::ethercat_now, MainDevice, MainDeviceConfig, PduStorage, RetryBehaviour, Timeouts,
 };
 use std::{
-    fs::File, sync::{atomic::{AtomicBool, Ordering}, Arc, LazyLock, Mutex, RwLock}, time::{Duration, Instant}
+    fs::File, sync::{atomic::{AtomicBool, Ordering}, Arc, LazyLock, Mutex, RwLock, RwLockWriteGuard, RwLockReadGuard}, time::{Duration, Instant}
 };
 use bitvec::prelude::*;
 use anyhow::Result;
@@ -240,6 +240,15 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     let modbus_subscriber: subscriber::Subscriber<ipc::Service, ModbusIpcDataTx, ()> = modbus_sub_service.subscriber_builder().create()?;
     let modbus_subscriber = Arc::new(modbus_subscriber);
 
+    let tgbot_node = NodeBuilder::new().create::<ipc::Service>()?;
+    let tgbot_service = tgbot_node
+    .service_builder(&"TgbotFromPlc".try_into()?)
+    .publish_subscribe::<TgbotAlertFromPlc>()
+    .open_or_create()?;
+
+    let tgbot_publisher: publisher::Publisher<ipc::Service, TgbotAlertFromPlc, ()> = tgbot_service.publisher_builder().create()?;
+    let tgbot_publisher = Arc::new(tgbot_publisher);
+
     let ts = term_states.clone();
 
     if measure_jitter {
@@ -393,11 +402,12 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
             }
         }
 
-        opcua_ipc_to_plc(subscriber.clone())?;
-        modbus_ipc_to_logic(modbus_subscriber.clone())?;
-        plc_execute_logic(ts.clone(), counter.clone());
-        modbus_ipc_from_logic(modbus_publisher.clone())?;
-        opcua_ipc_from_plc(ts.clone(), publisher.clone())?;
+        opcua_ipc_to_plc(LOCAL_PLC_DATA.write().unwrap(), subscriber.clone())?;
+        modbus_ipc_to_logic(LOCAL_PLC_DATA.write().unwrap(), modbus_subscriber.clone())?;
+        plc_execute_logic(ts.clone(), counter.clone()); // Manages lock on LOCAL_PLC_DATA internally;
+        modbus_ipc_from_logic(LOCAL_PLC_DATA.read().unwrap(), modbus_publisher.clone())?;
+        opcua_ipc_from_plc(ts.clone(), LOCAL_PLC_DATA.write().unwrap(), publisher.clone())?;
+        tgbot_update_alert(LOCAL_PLC_DATA.read().unwrap(), tgbot_publisher.clone())?;
 
         counter = counter.wrapping_add(1);
         next_time += cycle;
@@ -446,13 +456,12 @@ fn opcua_init_ipc_from_plc(publisher: Arc<iceoryx2::port::publisher::Publisher<i
 }
 
 /// ⚠️ **UB Warning!** ⚠️ Compiler cannot prove safety: Make sure `opcua_init_ipc_from_plc()` has been called before calling this function
-fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<publisher::Publisher<ipc::Service, IpcDataFromPlc, ()>>) -> Result<(), anyhow::Error> {
+fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, mut plc_data: RwLockWriteGuard<'_, LocalPlcData>, publisher: Arc<publisher::Publisher<ipc::Service, IpcDataFromPlc, ()>>) -> Result<(), anyhow::Error> {
     let sample = publisher.loan_uninit()?;
 
     // TODO? rip out this redundant copying?
     // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
     // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
-    let mut plc_data = LOCAL_PLC_DATA.write().unwrap();
 
     // ⚠️UB Warning!⚠️ Compiler cannot prove safety: Make sure opcua_init_ipc_from_plc() has been called
     let mut sample = unsafe { sample.assume_init() };
@@ -495,14 +504,13 @@ fn opcua_ipc_from_plc(term_states: Arc<RwLock<TermStates>>, publisher: Arc<publi
 }
 
 /// ⚠️ **UB Warning!** ⚠️ Compiler cannot prove safety: Make sure `opcua_init_ipc_to_plc()` **in OPC UA server program** has been called before calling this function
-fn opcua_ipc_to_plc(subscriber: Arc<subscriber::Subscriber<ipc::Service, IpcDataToPlc, ()>>) -> Result<(), anyhow::Error> {
+fn opcua_ipc_to_plc(mut plc_data: RwLockWriteGuard<'_, LocalPlcData>, subscriber: Arc<subscriber::Subscriber<ipc::Service, IpcDataToPlc, ()>>) -> Result<(), anyhow::Error> {
     while let Some(sample) = subscriber.receive()? {
         let data = sample.payload();
 
         // TODO? rip out this redundant copying?
         // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
         // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
-        let mut plc_data = LOCAL_PLC_DATA.write().unwrap();
 
         // Incoming to PLC: HMI command from shmem to local PLC state
         plc_data.area_1_lights_hmi_cmd = data.area_1_lights_hmi_cmd;
@@ -512,10 +520,9 @@ fn opcua_ipc_to_plc(subscriber: Arc<subscriber::Subscriber<ipc::Service, IpcData
     Ok(())
 }
 
-fn modbus_ipc_to_logic(subscriber: Arc<subscriber::Subscriber<ipc::Service, ModbusIpcDataTx, ()>>) -> Result<(), anyhow::Error> {
+fn modbus_ipc_to_logic(mut plc_data: RwLockWriteGuard<'_, LocalPlcData>, subscriber: Arc<subscriber::Subscriber<ipc::Service, ModbusIpcDataTx, ()>>) -> Result<(), anyhow::Error> {
     while let Some(sample) = subscriber.receive()? {
         let data = sample.payload();
-        let mut plc_data = LOCAL_PLC_DATA.write().unwrap();
 
         // Incoming to PLC
         plc_data.modbus_ai_0 = data.modbus_ai_0;
@@ -533,7 +540,7 @@ fn modbus_init_ipc_from_logic(publisher: Arc<publisher::Publisher<ipc::Service, 
 }
 
 /// ⚠️ **UB Warning!** ⚠️ Compiler cannot prove safety: Make sure `modbus_init_ipc_from_logic()` has been called before calling this function
-fn modbus_ipc_from_logic(publisher: Arc<publisher::Publisher<ipc::Service, ModbusIpcDataRx, ()>>) -> Result<(), anyhow::Error> {
+fn modbus_ipc_from_logic(plc_data: RwLockReadGuard<'_, LocalPlcData>, publisher: Arc<publisher::Publisher<ipc::Service, ModbusIpcDataRx, ()>>) -> Result<(), anyhow::Error> {
     let sample = publisher.loan_uninit()?;
 
     // ⚠️UB Warning!⚠️ Compiler cannot prove safety: Make sure modbus_init_ipc_from_logic() has been called
@@ -544,9 +551,21 @@ fn modbus_ipc_from_logic(publisher: Arc<publisher::Publisher<ipc::Service, Modbu
         // TODO? rip out this redundant copying?
         // the reason for making a duplicate is so that the logic loop can fetch from LOCAL_PLC_DATA
         // instead of opening the shared mem file, which is dedicated for IPC between the ctrl_loop and the OPC UA server
-        let plc_data = LOCAL_PLC_DATA.read().unwrap();
         data.modbus_do_0 = plc_data.modbus_do_0;
     }
+    sample.send()?;
+    Ok(())
+}
+
+fn tgbot_update_alert(plc_data: RwLockReadGuard<'_, LocalPlcData>, publisher: Arc<publisher::Publisher<ipc::Service, TgbotAlertFromPlc, ()>>) -> Result<(), anyhow::Error> {
+    let sample = publisher.loan_uninit()?;
+
+    let sample = sample.write_payload(
+        TgbotAlertFromPlc {
+            err_code: plc_data.err_code as u32
+        }
+    );
+
     sample.send()?;
     Ok(())
 }
