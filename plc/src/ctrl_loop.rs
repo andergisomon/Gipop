@@ -159,7 +159,6 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     let group = group.into_op(&maindevice).await.expect("PRE-OP -> OP"); // Should probably handle errors better
 
     for subdevice in group.iter(&maindevice) {
-        // TODO: all of these if blocks contain repetitive code, should be abstracted away in a helper function
         if subdevice.name() == "EL2889" {
             let io = subdevice.io_raw();
             let size = 8*(io.inputs().len() + io.outputs().len());
@@ -260,7 +259,7 @@ pub async fn entry_loop(network_interface: &String, measure_jitter: bool) -> Res
     modbus_init_ipc_from_logic(modbus_publisher.clone())?;
 
     let mut counter: u64 = 0;
-    let cycle = Duration::from_micros(1000); // 10ms PLC cycle time
+    let cycle = Duration::from_micros(10_000); // 10ms PLC cycle time is typical
     let mut next_time = Instant::now() + cycle;
     let mut deadline_misses: u64 = 0;
     let mut max_jit_us: i64 = 0;

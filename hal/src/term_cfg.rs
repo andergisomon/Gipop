@@ -1,7 +1,6 @@
 use bitvec::prelude::*;
 use enum_iterator::Sequence;
 use std::ops::Deref;
-use std::sync::{Arc, RwLock};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Sequence)]
@@ -271,11 +270,6 @@ impl Setter for KBusTerm {
         self.rx_data.as_mut().unwrap().set(channel, data_to_write);
         Ok(())
     }
-}
-
-pub struct BK1120_Coupler { // Should probably abstract this away but we're fine with this for now
-    k_bus_subdevices: Vec<KBusTerm>,
-    len: u8, // We'll only support up to 127 K-bus terminals for now
 }
 
 pub struct DITerm {

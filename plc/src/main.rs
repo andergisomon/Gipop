@@ -57,35 +57,37 @@ fn main() {
     if cmp.as_str() != "YES" && cmp.as_str() != "NO" {
         log::error!("Provide only YES or NO to specify Measure jitter arg")
     }
-
-    let measure_jitter: bool = match measure_jitter_opt.clone().as_str() {
-        "YES" => true,
-        "NO" => false,
-        _ => unreachable!()
-    };
-
-    let handle = std::thread::spawn(move || {
-        let _ = core_affinity::set_for_current(CoreId {id: 2});
-
-        let thread_param = sched_param {sched_priority: 95};
-        let sched_res = unsafe {
-            sched_setscheduler(0, SCHED_FIFO, &thread_param)
+    else {
+        let measure_jitter: bool = match measure_jitter_opt.clone().as_str() {
+            "YES" => true,
+            "NO" => false,
+            _ => unreachable!()
         };
-        match sched_res {
-            0 => {
-                log::info!("main: sched_setscheduler call returned 0");
-            },
-            _ => {
-                log::error!("main: sched_setscheduler failed: Returned {}", sched_res);
+
+        let handle = std::thread::spawn(move || {
+            let _ = core_affinity::set_for_current(CoreId {id: 2});
+
+            let thread_param = sched_param {sched_priority: 95};
+            let sched_res = unsafe {
+                sched_setscheduler(0, SCHED_FIFO, &thread_param)
+            };
+
+            match sched_res {
+                0 => {
+                    log::info!("main: sched_setscheduler call returned 0");
+                },
+                _ => {
+                    log::error!("main: sched_setscheduler failed: Returned {}", sched_res);
+                }
             }
+
+            smol::block_on(ctrl_loop::entry_loop(&network_interface, measure_jitter))
+        });
+
+        match handle.join() {
+            Ok(result) => result.expect("Entry loop task"),
+            Err(e) => panic!("Thread panicked: {:?}", e),
         }
-
-        smol::block_on(ctrl_loop::entry_loop(&network_interface, measure_jitter))
-    });
-
-    match handle.join() {
-        Ok(result) => result.expect("Entry loop task"),
-        Err(e) => panic!("Thread panicked: {:?}", e),
     }
     
     log::info!("Program terminated.");
