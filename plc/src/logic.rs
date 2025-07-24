@@ -167,8 +167,26 @@ pub fn plc_execute_logic(term_states: Arc<RwLock<TermStates>>, counter: u64) {
                 write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Index(rmt_cmd_rag as u8 - 1));
             }
         }
-
     }
+
+    {
+        let local = LOCAL_PLC_DATA.write().unwrap();
+        let temp = local.temperature;
+
+        if temp > 24.0 && temp < 24.5 {
+            write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Channel(TermChannel::Ch16));
+        }
+        if temp > 24.5 && temp < 25.0 {
+            write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Channel(TermChannel::Ch16));
+            write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Channel(TermChannel::Ch15));
+        }
+        if temp > 25.0 {
+            write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Channel(TermChannel::Ch16));
+            write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Channel(TermChannel::Ch15));
+            write_channel_kl2889(Arc::clone(&term_states), true, ChannelInput::Channel(TermChannel::Ch14));        
+        }
+    }
+    
 }
 
 fn enocean_sm(term_states: Arc<RwLock<TermStates>>) {
