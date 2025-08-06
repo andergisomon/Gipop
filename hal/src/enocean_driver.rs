@@ -90,3 +90,26 @@ pub fn write_cb1(term_states: Arc<RwLock<TermStates>>, val: bool) {
     let mut wr_guard = wr_guard.kbus_terms[2].write().expect("get KL6581 write guard");
     wr_guard.write(val, ChannelInput::Index(1)).unwrap(); // CB.1
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const TEST_PAIRS: [(u8, &str); 8] = [
+        (0x10, "The KL6581 does not answer anymore. Check the mapping and communication."),
+        (0x11, "The KL6581 does not answer. Check the mapping and communication."),
+        (0x12, "nIdx is not correct. nIdx may have a value from 0 to 64."),
+        (0x13, "bInit is FALSE. Set bInit back to TRUE."),
+        (0x14, "The terminal is not in data exchange. Check the mapping and communication."),
+        (0x15, "There is no KL6583 connected. Check the wiring to the KL6583."),
+        (0x16, "The KL6581 does not answer anymore. Check the mapping and communication."),
+        (0x9, "Invalid CNODE byte value")
+    ];
+
+    #[test]
+    fn test_enocean_errs() {
+        for pair in TEST_PAIRS {
+            let (err, msg) = pair;
+            assert_eq!(CnodeErrors::cnode_err_to_string(BitVec::from_element(err)), msg);
+        }
+    }
+}
